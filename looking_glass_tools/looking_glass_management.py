@@ -67,8 +67,8 @@ class BaseSocketType(object):
 
     # TEMPLATE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    # these methods must be implemented by the subclasses, which implement the
-    # specific service
+    # NOTE: These methods must be implemented by the subclasses, which represent
+    #       the specific service
     def __init__(self):
         ''' handle initialization of the class instance and the specific socket '''
         pass
@@ -291,8 +291,8 @@ class HoloPlayServiceSocket(BaseSocketType):
 
     # PRIVATE INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    # NOTE: Here is the place to define internal functions required for the specific
-    #       service implementation
+    # NOTE: Here is the place to define internal functions required for the
+    #       specific service implementation
 
     def __nng_send_message(self, input_object):
         ''' send a message to HoloPlay Service '''
@@ -522,8 +522,11 @@ class LookingGlassDeviceType(object):
     __presets = []  # list for the quilt presets
 
 
-    # INSTANCE METHODS
+    # INSTANCE METHODS - IMPLEMENTED BY BASE CLASS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    # NOTE: Here is the place to implement functions that should not be overriden
+    #       by the subclasses, which represent the specific device types
+
     def __init__(self, configuration=None):
         ''' Initialize the device instance '''
 
@@ -550,7 +553,7 @@ class LookingGlassDeviceType(object):
 
             # otherwise apply the device type's dummy configuration
             # and assume the device is emulated
-            self.configuration = self._dummy_configuration()
+            self.configuration = self.emulated_configuration
 
             # set the state variables for connected devices
             self.connected = False
@@ -599,6 +602,15 @@ class LookingGlassDeviceType(object):
 
         # otherwise raise an exception
         raise ValueError("The preset with id '%i' is not in the list." % id)
+
+
+    # TEMPLATE METHODS - IMPLEMENTED BY SUBCLASS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    # NOTE: These methods must be implemented by the subclasses, which represent
+    #       the specific device types.
+    def init(self):
+        ''' Initialize the type specific values '''
+        pass
 
 
 
@@ -679,60 +691,59 @@ class LookingGlass_8_9inch(LookingGlassDeviceType):
 
     # PROTECTED MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    type = "standard"         # the unique identifier string of this device type
+    type = "standard"                # the unique identifier string of this device type
+    name = "8.9'' Looking Glass"     # name of this device type
+    emulated_configuration = {       # configuration used for emulated devices of this type
+
+            # device information
+            'index': -1,
+            'hdmi': "LKG0001DUMMY",
+            'name': "8.9'' Looking Glass",
+            'serial': "LKG-1-DUMMY",
+            'type': "standard",
+
+            # # window & screen properties
+            # 'x': -1536,
+            # 'y': 0,
+            # 'width': 1536,
+            # 'height': 2048,
+            # 'aspectRatio': 0.75,
+            #
+            # # calibration data
+            # 'pitch': 354.70953369140625,
+            # 'tilt': -0.11324916034936905,
+            # 'center': -0.11902174353599548,
+            # 'subp': 0.0001302083401242271,
+            # 'fringe': 0.0,
+            # 'ri': 0,
+            # 'bi': 2,
+            # 'invView': 1,
+
+            # viewcone
+            'viewCone': 58
+
+            }
 
 
     # INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     def init(self):
-        ''' Initialize the type specific values '''
-
-        # set the display name of the device type
-        self.name = "8.9'' Looking Glass"
+        ''' initialize this specific values of this device type '''
 
         # define the quilt presets supported by this Looking Glass type
         self.add_preset("2k Quilt, 32 Views", 2048, 2048, 4, 8)
         self.add_preset("4k Quilt, 45 Views", 4095, 4095, 5, 9)
         self.add_preset("8k Quilt, 45 Views", 4096 * 2, 4096 * 2, 5, 9)
 
-
-
     # PRIVATE INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    # the dummy configuration for this Looking Glass type
-    def _dummy_configuration(self):
-        dummy = {
+    # NOTE: Here is the place to define internal functions required for the
+    #       specific device type implementation
 
-				# device information
-				'index': -1,
-				'hdmi': "LKG0001DUMMY",
-				'name': self.name,
-				'serial': "LKG-1-DUMMY",
-				'type': self.type,
+    def _template_func(self):
+        ''' DEFINE YOUR REQUIRED DEVICE-SPECIFIC FUNCTIONS HERE '''
+        return None
 
-				# # window & screen properties
-				# 'x': -1536,
-				# 'y': 0,
-				# 'width': 1536,
-				# 'height': 2048,
-				# 'aspectRatio': 0.75,
-                #
-				# # calibration data
-				# 'pitch': 354.70953369140625,
-				# 'tilt': -0.11324916034936905,
-				# 'center': -0.11902174353599548,
-				# 'subp': 0.0001302083401242271,
-				# 'fringe': 0.0,
-				# 'ri': 0,
-				# 'bi': 2,
-				# 'invView': 1,
-
-				# viewcone
-				'viewCone': 58
-
-                }
-
-        return dummy
 
 
 # Looking Glass Portrait
@@ -740,56 +751,59 @@ class LookingGlass_portrait(LookingGlassDeviceType):
 
     # PROTECTED MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    type = "portrait"         # the unique identifier string of this device type
+    type = "portrait"                # the unique identifier string of this device type
+    name = "Looking Glass Portrait"  # name of this device type
+    emulated_configuration = {       # configuration used for emulated devices of this type
 
+            # device information
+            'index': -1,
+            'hdmi': "LKG0001DUMMY",
+            'name': "Looking Glass Portrait",
+            'serial': "LKG-1-DUMMY",
+            'type': "portrait",
+
+            # # window & screen properties
+            # 'x': -1536,
+            # 'y': 0,
+            # 'width': 1536,
+            # 'height': 2048,
+            # 'aspectRatio': 0.75,
+            #
+            # # calibration data
+            # 'pitch': 354.70953369140625,
+            # 'tilt': -0.11324916034936905,
+            # 'center': -0.11902174353599548,
+            # 'subp': 0.0001302083401242271,
+            # 'fringe': 0.0,
+            # 'ri': 0,
+            # 'bi': 2,
+            # 'invView': 1,
+
+            # viewcone
+            'viewCone': 58
+
+            }
 
     # INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     def init(self):
-
-        # set the display name of the device type
-        self.name = "Looking Glass Portrait"
+        ''' initialize this specific values of this device type '''
 
         # define the quilt presets supported by this Looking Glass type
         self.add_preset("Portrait, 48 Views", 3360, 3360, 8, 6)
 
 
+
     # PRIVATE INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    # the dummy configuration for this Looking Glass type
-    def _dummy_configuration(self):
-        dummy = {
+    # NOTE: Here is the place to define internal functions required for the
+    #       specific device type implementation
 
-				# device information
-				'index': -1,
-				'hdmi': "LKG0002DUMMY",
-				'name': self.name,
-				'serial': "LKG-2-DUMMY",
-				'type': self.type,
+    def _template_func(self):
+        ''' DEFINE YOUR REQUIRED DEVICE-SPECIFIC FUNCTIONS HERE '''
+        return None
 
-				# # window & screen properties
-				# 'x': -1536,
-				# 'y': 0,
-				# 'width': 1536,
-				# 'height': 2048,
-				# 'aspectRatio': 0.75,
-                #
-				# # calibration data
-				# 'pitch': 354.70953369140625,
-				# 'tilt': -0.11324916034936905,
-				# 'center': -0.11902174353599548,
-				# 'subp': 0.0001302083401242271,
-				# 'fringe': 0.0,
-				# 'ri': 0,
-				# 'bi': 2,
-				# 'invView': 1,
 
-				# viewcone
-				'viewCone': 58
-
-                }
-
-        return dummy
 
 
 # TEST CODE
