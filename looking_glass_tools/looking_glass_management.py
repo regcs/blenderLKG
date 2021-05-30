@@ -332,24 +332,35 @@ class HoloPlayServiceSocket(BaseSocketType):
         configuration['fringe'] = 0.0
 
 
-# FACTORY CLASS FOR LOOKING GLASS DEVICES
+# LOOKING GLASS DEVICE MANAGER
 ###############################################
-# Factory class for generating looking glass device instances of the different
-# device types (connected devices + emulated deviced)
-class LookingGlassDevice(object):
+# the device manager is the factory class for generating looking glass device
+# instances of the different device types
+class LookingGlassManager(object):
 
     # DEFINE CLASS PROPERTIES AS PRIVATE MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     __dev_count = 0             # number of device instances
     __dev_list = []             # list for initialized device instances
     __dev_active = None         # currently active device instance
+    __dev_socket = None         # the socket used by the device manager
 
 
     # CLASS METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     @classmethod
-    def from_socket(cls, socket, emulate_remaining = True):
-        ''' obtain the complete device list from a socket service '''
+    def get_socket(cls, socket):
+        ''' get the socket used by this device manager '''
+        return cls.__dev_socket
+
+    @classmethod
+    def set_socket(cls, socket):
+        ''' set the socket used by this device manager '''
+        cls.__dev_socket = socket
+
+    @classmethod
+    def refresh(cls, emulate_remaining = True):
+        ''' refresh the device list using a given socket service '''
 
         # if the socket is open and connected
         if socket and socket.is_connected():
@@ -433,7 +444,7 @@ class LookingGlassDevice(object):
             print("Removing device '%s' ..." % (device))
 
             # if this device is the active device, set_active
-            if cls.get_active() == device.id: LookingGlassDevice.reset_active()
+            if cls.get_active() == device.id: LookingGlassManager.reset_active()
 
             cls.__dev_list.remove(device)
 
@@ -458,10 +469,9 @@ class LookingGlassDevice(object):
 
         return True
 
-
     @classmethod
     def to_list(cls, show_connected = None, show_emulated = None, filter_by_type = None):
-        ''' enumerate the devices of this factory class '''
+        ''' enumerate the devices of this device manager as list '''
         return [d for d in cls.__dev_list if ((show_connected == None or d.connected == show_connected) and (show_emulated == None or d.emulated == show_emulated)) and (filter_by_type == None or d.type == filter_by_type)]
 
     @classmethod
@@ -500,12 +510,6 @@ class LookingGlassDevice(object):
 
         return False
 
-    # STATIC METHODS
-    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-    # CLASS PROPERTIES
-    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
 
 # BASE CLASS FOR DEVICE TYPES
 ###############################################
@@ -531,7 +535,7 @@ class LookingGlassDeviceType(object):
         ''' Initialize the device instance '''
 
         # set essential properties of the class instance
-        self.id = LookingGlassDevice.count()
+        self.id = LookingGlassManager.count()
 
         # initialize the device type specific values
         self.init()
@@ -609,15 +613,17 @@ class LookingGlassDeviceType(object):
     # NOTE: These methods must be implemented by the subclasses, which represent
     #       the specific device types.
     def init(self):
-        ''' Initialize the type specific values '''
+        ''' initialize the type specific values '''
+        pass
+
+    def update(self, image, type=None):
+        ''' process the image for the socket service and hand it over for displaying '''
         pass
 
 
 
-    # CLASS PROPERTIES
+    # CLASS PROPERTIES - GENRAL
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-    # class specific values
     @property
     def id(self):
         return self.__id
@@ -650,7 +656,8 @@ class LookingGlassDeviceType(object):
     def presets(self, value):
         self.__presets = value
 
-    # configuration and calibration values of the instance
+    # CLASS PROPERTIES - CONFIGURATION
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     @property
     def configuration(self):
         return self.__configuration
@@ -682,6 +689,7 @@ class LookingGlassDeviceType(object):
             self.configuration['serial'] = value
         else:
             self.configuration['calibration']['serial'] = value
+
 
 
 # DEVICE TYPE CLASSES
@@ -734,6 +742,14 @@ class LookingGlass_8_9inch(LookingGlassDeviceType):
         self.add_preset("2k Quilt, 32 Views", 2048, 2048, 4, 8)
         self.add_preset("4k Quilt, 45 Views", 4095, 4095, 5, 9)
         self.add_preset("8k Quilt, 45 Views", 4096 * 2, 4096 * 2, 5, 9)
+
+    def update(self, image, type=None):
+        ''' do some checks if required and hand it over for displaying '''
+        # NOTE: The code here should only pre-process the image, if the device
+        #       type requires that. socket type and then use socket methods to display it
+
+        pass
+
 
     # PRIVATE INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -816,22 +832,25 @@ socket = Socket.open('holoplayservice')
 # connect the app to the socket service
 socket.connect()
 
+# make the device manager use the created socket
+LookingGlassManager.set_socket(socket)
+
 # request the connected Looking Glasses from the given socket
-LookingGlassDevice.from_socket(socket)
+LookingGlassManager.refresh()
 
 # create set of emulated devices
-LookingGlassDevice.add_emulated()
+LookingGlassManager.add_emulated()
 
-print('[STATS] Found %i devices in the list:' % LookingGlassDevice.count())
-for idx, device in enumerate(LookingGlassDevice.to_list()):
+print('[STATS] Found %i devices in the list:' % LookingGlassManager.count())
+for idx, device in enumerate(LookingGlassManager.to_list()):
     print(" [%i] %s" % (idx, device,) )
 
-print('[STATS] Found %i connected devices:' % LookingGlassDevice.count(show_connected = True, show_emulated = False))
-for idx, device in enumerate(LookingGlassDevice.to_list(show_connected = True, show_emulated = False)):
+print('[STATS] Found %i connected devices:' % LookingGlassManager.count(show_connected = True, show_emulated = False))
+for idx, device in enumerate(LookingGlassManager.to_list(show_connected = True, show_emulated = False)):
     print(" [%i] %s" % (idx, device,) )
 
-print('[STATS] Found %i emulated devices:' % LookingGlassDevice.count(show_connected = False, show_emulated = True))
-for idx, device in enumerate(LookingGlassDevice.to_list(show_connected = False, show_emulated = True)):
+print('[STATS] Found %i emulated devices:' % LookingGlassManager.count(show_connected = False, show_emulated = True))
+for idx, device in enumerate(LookingGlassManager.to_list(show_connected = False, show_emulated = True)):
     print(" [%i] %s" % (idx, device,) )
 
 # disconnect from socket Service
@@ -839,12 +858,3 @@ socket.disconnect()
 
 # close the socket
 socket.close()
-
-# dev_1 = LookingGlassDevice.add_device("standard")
-# dev_2 = LookingGlassDevice.add_device("portrait")
-# print('[STATS] Enumerate registered devices:')
-# print(LookingGlassDevice.enumerate())
-# LookingGlassDevice.set_active(0)
-# active = LookingGlassDevice.get_active()
-# print(active.emulated)
-# LookingGlassDevice.remove_device(dev_1)
