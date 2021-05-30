@@ -16,8 +16,6 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-# The Socket interface classes are based on freeHPC https://github.com/regcs/freehpc
-
 # import bpy
 import timeit
 from enum import Enum
@@ -69,29 +67,39 @@ class BaseSocketType(object):
 
     # TEMPLATE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    # these methods must be implemented by subclasses
+    # these methods must be implemented by the subclasses, which implement the
+    # specific service
     def __init__(self):
         ''' handle initialization of the class instance and the specific socket '''
         pass
 
     def is_socket(self):
-        ''' handle checking if the socket is open '''
+        ''' handles checking if the socket is open '''
         pass
 
     def is_connected(self):
-        ''' handle checking if the socket is connected to the service '''
+        ''' handles checking if the socket is connected to the service '''
         pass
 
     def connect(self):
-        ''' handle connection to the socket service '''
+        ''' handles connection to the socket service '''
         pass
 
     def disconnect(self):
-        ''' handle disconnection from the socket service '''
+        ''' handles disconnection from the socket service '''
         pass
 
     def close(self):
         ''' handle closing of the socket '''
+        pass
+
+    def get_version(self):
+        ''' method to get the socket / service version '''
+        pass
+
+    def get_devices(self):
+        ''' method to request the connected devices '''
+        ''' this function should return a list of device configurations '''
         pass
 
     # CLASS PROPERTIES
@@ -202,7 +210,6 @@ class HoloPlayServiceSocket(BaseSocketType):
         print("Already connected to HoloPlay Service:", self.__dialer)
         return True
 
-
     def disconnect(self):
         ''' disconnect from holoplay service '''
 
@@ -228,7 +235,6 @@ class HoloPlayServiceSocket(BaseSocketType):
             self.socket = None
             self.version = ""
             self.__dialer = None
-
 
     def get_version(self):
         ''' get the holoplay service version '''
@@ -285,8 +291,9 @@ class HoloPlayServiceSocket(BaseSocketType):
 
     # PRIVATE INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    # NOTE: Here is the place to define internal functions required for the specific
+    #       service implementation
 
-    # send a NNG message to the HoloPlay Service
     def __nng_send_message(self, input_object):
         ''' send a message to HoloPlay Service '''
 
@@ -314,10 +321,10 @@ class HoloPlayServiceSocket(BaseSocketType):
             # return the response length and its conent
             return [len(response), cbor_load]
 
-    # calculate the values derived from the calibration json delivered by HoloPlay Service
     def __calculate_derived(self, configuration):
+        ''' calculate the values derived from the calibration json delivered by HoloPlay Service '''
 
-        # calculate any values derived values from the cfg values
+        # calculate any values derived from the configuration values
         configuration['tilt'] = configuration['screenH'] / (configuration['screenW'] * configuration['slope'])
         configuration['pitch'] = - configuration['screenW'] / configuration['DPI']  * configuration['pitch']  * math.sin(math.atan(abs(configuration['slope'])))
         configuration['subp'] = configuration['pitch'] / (3 * configuration['screenW'])
@@ -349,25 +356,41 @@ class LookingGlassDevice(object):
 
             instances = []
 
-            # TODO: HANDLE DELETION OF DISCONNECTED
-
+            # set all (not emulated) devices to "disconnected"
+            # NOTE: We don't delete the devices, because that would be much harder
+            #       to handle when the user already used the device instance
+            #       for doing things
+            for d in cls.__dev_list:
+                if d.emulated == False:
+                    d.connected = False
 
             # request devices
             devices = socket.get_devices()
             if devices:
 
-                print("Number of connected devices:", len(devices))
-
                 # for each device returned create a LookingGlassDevice instance
                 # of the corresponding type
                 for idx, device in enumerate(devices):
 
-                    # create a LookingGlassDevice instance
-                    # of the corresponding type
-                    instance = cls.add_device(device['hardwareVersion'], device)
+                    # try to find the instance of this device
+                    instance = list(filter(lambda d: d.serial == device['calibration']['serial'], cls.__dev_list))
 
-                    # make the first device the active device if no device is active
-                    if idx == 0 and not cls.get_active(): cls.set_active(instance.id)
+                    # if no instance of this device exists
+                    if not instance:
+
+                        # create a device instance of the corresponding type
+                        instance = cls.add_device(device['hardwareVersion'], device)
+
+                        # make the first device the active device if no device is active
+                        if idx == 0 and not cls.get_active(): cls.set_active(instance.id)
+
+                    else:
+
+                        # update the configuration
+                        instance[0].configuration = device
+
+                        # make sure the state of the device instance is "connected"
+                        instance[0].connected = True
 
             return None
 
@@ -383,6 +406,7 @@ class LookingGlassDevice(object):
         # call the corresponding type
         if DeviceTypeClass:
 
+            # create the device instance
             device = DeviceTypeClass[0](device_configuration)
 
             # increment device count
@@ -422,34 +446,26 @@ class LookingGlassDevice(object):
     def add_emulated(cls, filter=None):
         ''' add an emulated device for each supported device type '''
 
-        # for each evice type which is not in "except" list
+        # for each device type which is not in "except" list
         for DeviceType in set(LookingGlassDeviceType.__subclasses__()) - set([DeviceType for DeviceType in cls.__subclasses__() if DeviceType.type in filter ]):
 
-            # create an instance without passing a configuration
-            # (that will created an emulated device)
-            instance = cls.add_device(DeviceType.type)
+            # if not already emulated
+            if not (DeviceType.type in [d.type for d in cls.__dev_list if d.emulated == True]):
+
+                # create an instance without passing a configuration
+                # (that will created an emulated device)
+                instance = cls.add_device(DeviceType.type)
 
         return True
 
 
     @classmethod
-    def to_list(cls, show_connected = True, show_emulated = True, filter_by_type = None):
+    def to_list(cls, show_connected = None, show_emulated = None, filter_by_type = None):
         ''' enumerate the devices of this factory class '''
-
-        # list all
-        if show_connected == True and show_emulated == True:
-            return [d for d in cls.__dev_list if (filter_by_type == None or d.type in filter_by_type)]
-
-        # only connected devices
-        elif show_connected == True and show_emulated == False:
-            return [d for d in cls.__dev_list if d.emulated == False and (filter_by_type == None or d.type == filter_by_type)]
-
-        # only emulated devices
-        elif show_connected == False and show_emulated == True:
-            return [d for d in cls.__dev_list if d.emulated == True and (filter_by_type == None or d.type == filter_by_type)]
+        return [d for d in cls.__dev_list if ((show_connected == None or d.connected == show_connected) and (show_emulated == None or d.emulated == show_emulated)) and (filter_by_type == None or d.type == filter_by_type)]
 
     @classmethod
-    def count(cls, show_connected = True, show_emulated = True, filter_by_type = None):
+    def count(cls, show_connected = None, show_emulated = None, filter_by_type = None):
         ''' get number of devices '''
 
         return len(cls.to_list(show_connected, show_emulated, filter_by_type))
@@ -476,6 +492,14 @@ class LookingGlassDevice(object):
         ''' set the active device to None '''
         cls.__dev_active = None
 
+    @classmethod
+    def exists(cls, serial=None, type=None):
+        ''' check if the device instance already exists '''
+        if serial and serial in [d.serial for d in cls.__dev_list]:
+            return True
+
+        return False
+
     # STATIC METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -490,7 +514,8 @@ class LookingGlassDeviceType(object):
     # PUBLIC MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     __type = None           # the unique identifier string of each device type
-    __emulated = False      # the unique identifier string of each device type
+    __emulated = False      # is the device instance emulated?
+    __connected = True      # is the device still connected?
 
     # PRIVATE MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -500,7 +525,7 @@ class LookingGlassDeviceType(object):
     # INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     def __init__(self, configuration=None):
-        ''' Initialize the device type instance '''
+        ''' Initialize the device instance '''
 
         # set essential properties of the class instance
         self.id = LookingGlassDevice.count()
@@ -514,27 +539,32 @@ class LookingGlassDeviceType(object):
             # use it
             self.configuration = configuration
 
+            # set the state variables for connected devices
+            self.connected = True
+            self.emulated = False
+
             # create the device instance
-            print("Successfully registered connected device '%s' of type '%s'." % (self, self.type))
+            print("Successfully created class instance for the connected device '%s' of type '%s'." % (self, self.type))
 
         else:
 
             # otherwise apply the device type's dummy configuration
             # and assume the device is emulated
             self.configuration = self._dummy_configuration()
+
+            # set the state variables for connected devices
+            self.connected = False
             self.emulated = True
 
             # create the device instance
-            print("Successfully emulated device '%s' of type '%s'." % (self, self.type))
+            print("Successfully emulating device '%s' of type '%s'." % (self, self.type))
 
-    # the display name of the device when the instance is called
     def __str__(self):
-        ''' Output name of the device type instance '''
+        ''' the display name of the device when the instance is called '''
 
         if self.emulated == False: return self.name + " (id: " + str(self.id) + ")"
         if self.emulated == True: return "[Emulated] " + self.name + " (id: " + str(self.id) + ")"
 
-    # add a quilt preset
     def add_preset(self, description, quilt_width, quilt_height, columns, rows):
         ''' Add a quilt preset to the device type instance '''
 
@@ -554,7 +584,6 @@ class LookingGlassDeviceType(object):
         # return the added dict as result
         return self.presets[-1]
 
-    # remove a preset
     def remove_preset(self, id):
         ''' Remove a quilt preset from the device type instance '''
 
@@ -575,6 +604,8 @@ class LookingGlassDeviceType(object):
 
     # CLASS PROPERTIES
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    # class specific values
     @property
     def id(self):
         return self.__id
@@ -592,13 +623,22 @@ class LookingGlassDeviceType(object):
         self.__emulated = value
 
     @property
-    def name(self):
-        return self.__name
+    def connected(self):
+        return self.__connected
 
-    @name.setter
-    def name(self, value):
-        self.__name = value
+    @connected.setter
+    def connected(self, value):
+        self.__connected = value
 
+    @property
+    def presets(self):
+        return self.__presets
+
+    @presets.setter
+    def presets(self, value):
+        self.__presets = value
+
+    # configuration and calibration values of the instance
     @property
     def configuration(self):
         return self.__configuration
@@ -608,12 +648,28 @@ class LookingGlassDeviceType(object):
         self.__configuration = value
 
     @property
-    def presets(self):
-        return self.__presets
+    def name(self):
+        return self.__name
 
-    @presets.setter
-    def presets(self, value):
-        self.__presets = value
+    @name.setter
+    def name(self, value):
+        self.__name = value
+
+    @property
+    def serial(self):
+        # if this is an emulated device
+        if self.emulated:
+            return self.configuration['serial']
+        else:
+            return self.configuration['calibration']['serial']
+
+    @serial.setter
+    def serial(self, value):
+        # if this is an emulated device
+        if self.emulated:
+            self.configuration['serial'] = value
+        else:
+            self.configuration['calibration']['serial'] = value
 
 
 # DEVICE TYPE CLASSES
@@ -652,24 +708,24 @@ class LookingGlass_8_9inch(LookingGlassDeviceType):
 				'hdmi': "LKG0001DUMMY",
 				'name': self.name,
 				'serial': "LKG-1-DUMMY",
-				'type': "portrait",
+				'type': self.type,
 
-				# window & screen properties
-				'x': -1536,
-				'y': 0,
-				'width': 1536,
-				'height': 2048,
-				'aspectRatio': 0.75,
-
-				# calibration data
-				'pitch': 354.70953369140625,
-				'tilt': -0.11324916034936905,
-				'center': -0.11902174353599548,
-				'subp': 0.0001302083401242271,
-				'fringe': 0.0,
-				'ri': 0,
-				'bi': 2,
-				'invView': 1,
+				# # window & screen properties
+				# 'x': -1536,
+				# 'y': 0,
+				# 'width': 1536,
+				# 'height': 2048,
+				# 'aspectRatio': 0.75,
+                #
+				# # calibration data
+				# 'pitch': 354.70953369140625,
+				# 'tilt': -0.11324916034936905,
+				# 'center': -0.11902174353599548,
+				# 'subp': 0.0001302083401242271,
+				# 'fringe': 0.0,
+				# 'ri': 0,
+				# 'bi': 2,
+				# 'invView': 1,
 
 				# viewcone
 				'viewCone': 58
@@ -698,7 +754,6 @@ class LookingGlass_portrait(LookingGlassDeviceType):
         self.add_preset("Portrait, 48 Views", 3360, 3360, 8, 6)
 
 
-
     # PRIVATE INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     # the dummy configuration for this Looking Glass type
@@ -707,27 +762,27 @@ class LookingGlass_portrait(LookingGlassDeviceType):
 
 				# device information
 				'index': -1,
-				'hdmi': "LKG0001DUMMY",
+				'hdmi': "LKG0002DUMMY",
 				'name': self.name,
-				'serial': "LKG-1-DUMMY",
-				'type': "portrait",
+				'serial': "LKG-2-DUMMY",
+				'type': self.type,
 
-				# window & screen properties
-				'x': -1536,
-				'y': 0,
-				'width': 1536,
-				'height': 2048,
-				'aspectRatio': 0.75,
-
-				# calibration data
-				'pitch': 354.70953369140625,
-				'tilt': -0.11324916034936905,
-				'center': -0.11902174353599548,
-				'subp': 0.0001302083401242271,
-				'fringe': 0.0,
-				'ri': 0,
-				'bi': 2,
-				'invView': 1,
+				# # window & screen properties
+				# 'x': -1536,
+				# 'y': 0,
+				# 'width': 1536,
+				# 'height': 2048,
+				# 'aspectRatio': 0.75,
+                #
+				# # calibration data
+				# 'pitch': 354.70953369140625,
+				# 'tilt': -0.11324916034936905,
+				# 'center': -0.11902174353599548,
+				# 'subp': 0.0001302083401242271,
+				# 'fringe': 0.0,
+				# 'ri': 0,
+				# 'bi': 2,
+				# 'invView': 1,
 
 				# viewcone
 				'viewCone': 58
@@ -750,8 +805,12 @@ socket.connect()
 # request the connected Looking Glasses from the given socket
 LookingGlassDevice.from_socket(socket)
 
-# get set of emulated devices
+# create set of emulated devices
 LookingGlassDevice.add_emulated()
+
+print('[STATS] Found %i devices in the list:' % LookingGlassDevice.count())
+for idx, device in enumerate(LookingGlassDevice.to_list()):
+    print(" [%i] %s" % (idx, device,) )
 
 print('[STATS] Found %i connected devices:' % LookingGlassDevice.count(show_connected = True, show_emulated = False))
 for idx, device in enumerate(LookingGlassDevice.to_list(show_connected = True, show_emulated = False)):
