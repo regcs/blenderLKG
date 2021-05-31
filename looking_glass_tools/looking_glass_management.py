@@ -28,29 +28,123 @@ from pprint import pprint
 from time import sleep
 # from . holoplay_service_api_commands import *
 
+# LIGHTFIELD IMAGE CLASSES
+###############################################
+# the following classes are used to represent, convert, and manipulate a set of
+# views using a defined lightfield format
+class LightfieldImage(object):
+
+    # PRIVATE MEMBERS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    __lightfield_views = []       # list of views the lightfield is created from
+
+
+    # CLASS METHODS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    @classmethod
+    def new(cls, type, views = None):
+        ''' create a lightfield image object of specified type '''
+
+        # try to find the class for the specified type, if it exists
+        LightfieldImageType = [subclass for subclass in BaseLightfieldImageType.__subclasses__() if (subclass == service_type)]
+
+        if LightfieldImageType:
+
+            return True
+
+    def open(cls, type, views = None):
+        ''' create a lightfield image object of specified type '''
+
+        # try to find the class for the specified type, if it exists
+        LightfieldImageType = [subclass for subclass in BaseLightfieldImageType.__subclasses__() if (subclass == service_type)]
+
+        if LightfieldImageType:
+
+            return True
+
+
+class BaseLightfieldImageType(object):
+
+    # PRIVATE MEMBERS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    __views = []                # list of views the lightfield is created from
+    __views_format = []         # format of the views
+
+
+    # INSTANCE METHODS - IMPLEMENTED BY BASE CLASS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    def __init__(cls, type):
+        ''' create a new and empty lightfield image object of specified type '''
+        pass
+
+    def get_views(cls):
+        ''' return the list of views in their original format '''
+        return (cls.__views_format, cls.__views)
+
+    def set_views(cls, views, format):
+        ''' save the list of views in their original format '''
+        cls.__views = views
+        cls.__views_format = format
+
+    # INSTANCE METHODS - IMPLEMENTED BY SUBCLASS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+    @classmethod
+    def delete(cls, lightfield):
+        ''' delete the given lightfield image object '''
+        pass
+
+    @classmethod
+    def load(cls, filepath, format):
+        ''' load the given file and convert it to a lightfield image object '''
+        pass
+
+    @classmethod
+    def save(cls, filepath, format):
+        ''' convert the lightfield to a specific file format and save it '''
+        pass
+
+    @classmethod
+    def convert(cls, type):
+        ''' convert the lightfield to another lightfield image type '''
+        pass
+
+    # CLASS PROPERTIES
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    # @property
+    # def views(self):
+    #     return self.__lightfield_views
+    #
+    # @views.setter
+    # def views(self, value):
+    #     self.__lightfield_views = value
+
+
+
+
+
 # SERVICE MANAGER FOR LIGHTFIELD DISPLAYS
 ###############################################
 # the service manager is the factory class for generating service instances of
 # the different service types
 class ServiceManager(object):
 
-    # DEFINE CLASS PROPERTIES AS PRIVATE MEMBERS
+    # PRIVATE MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     __active = None                                    # active service
     __service_count = []                               # number of created services
     __service_list = []                                # list of created services
 
 
-    # INSTANCE METHODS - IMPLEMENTED BY BASE CLASS
+    # CLASS METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    # NOTE: Here is the place to implement functions that should not be overriden
-    #       by the subclasses, which represent the specific device types
     @classmethod
-    def create(cls, service_type):
+    def add(cls, service_type):
         ''' open the service of the specified type '''
 
         # try to find the class for the specified type, if it exists
-        ServiceTypeClass = [subclass for subclass in BaseServiceType.__subclasses__() if subclass.type == service_type]
+        ServiceTypeClass = [subclass for subclass in BaseServiceType.__subclasses__() if (subclass == service_type or subclass.type == service_type)]
 
         # if a service of the specified type was found
         if ServiceTypeClass:
@@ -64,6 +158,8 @@ class ServiceManager(object):
             # make this service the active service if no service is active or this is the first ready service
             if (not cls.get_active() or (cls.get_active() and not cls.get_active().is_ready())):
                 cls.set_active(service)
+
+            print("Added service '%s' to the service manager." % service)
 
             return service
 
@@ -95,6 +191,31 @@ class ServiceManager(object):
         # else raise exception
         raise ValueError("The given device with id '%i' is not in the list." % id)
 
+    @classmethod
+    def reset_active(cls):
+        ''' set the active service to None '''
+        cls.__service_active = None
+
+    @classmethod
+    def remove(cls, service):
+        ''' remove the service from the ServiceManager '''
+        # NOTE:
+
+        # if the device is in the list
+        if service in cls.__service_list:
+
+            # create the device instance
+            print("Removing service '%s' ..." % (service))
+
+            # if this device is the active device, set_active
+            if cls.get_active() == service: cls.reset_active()
+
+            cls.__service_list.remove(service)
+
+            # then delete the service instance
+            del service
+
+            return True
 
 # BASE CLASS OF SERVICE TYPES
 ###############################################
@@ -110,10 +231,21 @@ class BaseServiceType(object):
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     __version = ""                                      # version string of the service service
 
+
+    # INSTANCE METHODS - IMPLEMENTED BY BASE CLASS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    # NOTE: Here is the place to implement functions that should not be overriden
+    #       by the subclasses, which represent the specific service types
+
+    def __str__(self):
+        ''' the display name of the service when the instance is called '''
+
+        return "%s v%s" % (self.name, self.get_version())
+
     # TEMPLATE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     # NOTE: These methods must be implemented by the subclasses, which represent
-    #       the specific service
+    #       the specific service type
     def __init__(self):
         ''' handle initialization of the class instance and the specific service '''
         pass
@@ -131,7 +263,7 @@ class BaseServiceType(object):
         ''' this function should return a list of device configurations '''
         pass
 
-    def close(self):
+    def __del__(self):
         ''' handles closing / deinitializing the service '''
         pass
 
@@ -161,6 +293,7 @@ class HoloPlayService(BaseServiceType):
     # DEFINE CLASS PROPERTIES AS PROTECTED MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     type = 'holoplayservice'                            # the unique identifier string of this service type (required for the factory class)
+    name = 'HoloPlay Service'                           # the name this service type
 
     # DEFINE CLASS PROPERTIES AS PRIVATE MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -264,10 +397,13 @@ class HoloPlayService(BaseServiceType):
                         return devices
 
 
-    def close(self):
+    def __del__(self):
         ''' disconnect from HoloPlay Service App and close NNG socket '''
         if self.__is_connected():
 
+            # print("Deinitializing the service '%s' ..." % (self))
+
+            # disconnect and close socket
             self.__disconnect()
             self.__close()
 
@@ -327,7 +463,7 @@ class HoloPlayService(BaseServiceType):
         if self.__is_connected():
             self.__dialer.close()
             self.__dialer = None
-            print("Closed connection to HoloPlay Service.")
+            print("Closed connection to %s." % self.name)
             return True
 
         # otherwise
@@ -471,7 +607,7 @@ class DeviceManager(object):
         if DeviceTypeClass:
 
             # create the device instance
-            device = DeviceTypeClass[0](device_configuration)
+            device = DeviceTypeClass[0](cls.__dev_service, device_configuration)
 
             # increment device count
             # NOTE: this number is never decreased to prevent ambiguities of the id
@@ -568,14 +704,13 @@ class DeviceManager(object):
 # all device types implemented must be a subclass of this base class
 class BaseDeviceType(object):
 
-    # PUBLIC MEMBERS
-    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    __type = None           # the unique identifier string of each device type
-    __emulated = False      # is the device instance emulated?
-    __connected = True      # is the device still connected?
 
     # PRIVATE MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    __type = None           # the unique identifier string of each device type
+    __service = None        # the service the device was registered with
+    __emulated = False      # is the device instance emulated?
+    __connected = True      # is the device still connected?
     __presets = []  # list for the quilt presets
 
 
@@ -584,7 +719,7 @@ class BaseDeviceType(object):
     # NOTE: Here is the place to implement functions that should not be overriden
     #       by the subclasses, which represent the specific device types
 
-    def __init__(self, configuration=None):
+    def __init__(self, service, configuration=None):
         ''' initialize the device instance '''
 
         # set essential properties of the class instance
@@ -596,12 +731,15 @@ class BaseDeviceType(object):
             # use it
             self.configuration = configuration
 
+            # bind the specified service to the device instance
+            self.service = sevice
+
             # set the state variables for connected devices
             self.connected = True
             self.emulated = False
 
             # create the device instance
-            print("Successfully created class instance for the connected device '%s' of type '%s'." % (self, self.type))
+            print("Created class instance for the connected device '%s' of type '%s'." % (self, self.type))
 
         else:
 
@@ -609,12 +747,15 @@ class BaseDeviceType(object):
             # and assume the device is emulated
             self.configuration = self.emulated_configuration
 
+            # use it
+            self.service = None
+
             # set the state variables for connected devices
             self.connected = False
             self.emulated = True
 
             # create the device instance
-            print("Successfully emulating device '%s' of type '%s'." % (self, self.type))
+            print("Emulating device '%s' of type '%s'." % (self, self.type))
 
     def __str__(self):
         ''' the display name of the device when the instance is called '''
@@ -623,7 +764,7 @@ class BaseDeviceType(object):
         if self.emulated == True: return "[Emulated] " + self.name + " (id: " + str(self.id) + ")"
 
     def add_preset(self, description, quilt_width, quilt_height, columns, rows):
-        ''' Add a quilt preset to the device type instance '''
+        ''' add a quilt preset to the device type instance '''
 
         # append the preset to the list
         self.presets.append({
@@ -662,10 +803,10 @@ class BaseDeviceType(object):
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     # NOTE: These methods must be implemented by the subclasses, which represent
     #       the specific device types.
-    def update(self, image, type=None):
+    def update(self, LightfieldImage):
         ''' do some checks if required and hand it over for displaying '''
         # NOTE: This method should only pre-process the image, if the device
-        #       type requires that. Then use service methods to display it
+        #       type requires that. Then call service methods to display it.
 
         pass
 
@@ -680,6 +821,14 @@ class BaseDeviceType(object):
     @id.setter
     def id(self, value):
         self.__id = value
+
+    @property
+    def sevice(self):
+        return self.__sevice
+
+    @sevice.setter
+    def sevice(self, value):
+        self.__sevice = value
 
     @property
     def emulated(self):
@@ -750,6 +899,7 @@ class LookingGlass_8_9inch(BaseDeviceType):
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     type = "standard"                # the unique identifier string of this device type
     name = "8.9'' Looking Glass"     # name of this device type
+    formats = []                     # list of lightfield image types that are supported
     emulated_configuration = {       # configuration used for emulated devices of this type
 
             # device information
@@ -781,26 +931,34 @@ class LookingGlass_8_9inch(BaseDeviceType):
 
             }
 
-
     # INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    # NOTE: Here is the place to define methods required by the BaseClass for any
+    #       device type implementations
 
-
-
-    # PRIVATE INSTANCE METHODS
-    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    # NOTE: Here is the place to define internal functions required for the
-    #       specific device type implementation
-
-    def __init__(self, configuration=None):
+    def __init__(self, service, configuration=None):
         ''' initialize this specific values of this device type '''
         # call the initialization procedure of the BaseClass
-        super().__init__(configuration)
+        super().__init__(service, configuration)
 
         # define the quilt presets supported by this Looking Glass type
         self.add_preset("2k Quilt, 32 Views", 2048, 2048, 4, 8)
         self.add_preset("4k Quilt, 45 Views", 4095, 4095, 5, 9)
         self.add_preset("8k Quilt, 45 Views", 4096 * 2, 4096 * 2, 5, 9)
+
+    def update(self, LightfieldImage):
+        ''' display a given lightfield image object on the device '''
+        # NOTE: This method should only pre-process the image, if the device
+        #       type requires that. Then call service methods to display it.
+        # if type(LightfieldImage) in
+
+        pass
+
+
+    # PRIVATE INSTANCE METHODS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    # NOTE: Here is the place to define internal methods required for your
+    #       specific device type implementation
 
     def _template_func(self):
         ''' DEFINE YOUR REQUIRED DEVICE-SPECIFIC FUNCTIONS HERE '''
@@ -848,6 +1006,16 @@ class LookingGlass_portrait(BaseDeviceType):
 
     # INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    # NOTE: Here is the place to define methods required by the BaseClass for any
+    #       device type implementations
+
+    def __init__(self, service, configuration=None):
+        ''' initialize this specific values of this device type '''
+        # call the initialization procedure of the BaseClass
+        super().__init__(service, configuration)
+
+        # define the quilt presets supported by this Looking Glass type
+        self.add_preset("Portrait, 48 Views", 3360, 3360, 8, 6)
 
 
 
@@ -855,14 +1023,6 @@ class LookingGlass_portrait(BaseDeviceType):
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     # NOTE: Here is the place to define internal functions required for the
     #       specific device type implementation
-
-    def __init__(self, configuration=None):
-        ''' initialize this specific values of this device type '''
-        # call the initialization procedure of the BaseClass
-        super().__init__(configuration)
-
-        # define the quilt presets supported by this Looking Glass type
-        self.add_preset("Portrait, 48 Views", 3360, 3360, 8, 6)
 
     def __template_func(self):
         ''' DEFINE YOUR REQUIRED DEVICE-SPECIFIC FUNCTIONS HERE '''
@@ -876,7 +1036,7 @@ class LookingGlass_portrait(BaseDeviceType):
 print("")
 
 # create a service using "HoloPlay Service" backend
-service = ServiceManager.create('holoplayservice')
+service = ServiceManager.add(HoloPlayService)
 
 # make the device manager use the created service
 DeviceManager.set_service(service)
@@ -899,5 +1059,5 @@ print('[STATS] Found %i emulated devices:' % DeviceManager.count(show_connected 
 for idx, device in enumerate(DeviceManager.to_list(show_connected = False, show_emulated = True)):
     print(" [%i] %s" % (idx, device,) )
 
-# close the service
-service.close()
+# remove the service
+ServiceManager.remove(service)
