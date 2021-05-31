@@ -20,7 +20,7 @@
 import timeit
 from enum import Enum
 
-# modules required by the Holo Play Service socket
+# modules required by the Holo Play Service
 import pynng, cbor, math
 
 # just for debugging
@@ -28,73 +28,102 @@ from pprint import pprint
 from time import sleep
 # from . holoplay_service_api_commands import *
 
-# CLASS FOR LIGHTFIELD DISPLAY SOCKETS
+# SERVICE MANAGER FOR LIGHTFIELD DISPLAYS
 ###############################################
-# socket factory class to handle opening a socket of specificied type
-class Socket(object):
-
-    # CLASS METHODS
-    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    @classmethod
-    def open(self, socket_type):
-        ''' open the socket of the specified type '''
-
-        # try to find the class for the specified type, if it exists
-        SocketTypeClass = [subclass for subclass in BaseSocketType.__subclasses__() if subclass.type == socket_type]
-
-        # if a socket of the specified type was found, create and return its instance
-        if SocketTypeClass: return SocketTypeClass[0]()
-
-        # otherwise raise an exception
-        raise ValueError("There is no socket of type '%s'." % socket_type)
-
-    # NOTE: WE COULD IMPLEMENT A VLASS METHOD FOR CLOSING SOCKETS HERE
-    #       INSTEAD OF IMPLEMENTING THE "CLOSE()" METHOD IN EACH SOCKET.
-    #       BUT AT THE MOMENT I THINK IT IS BETTER TO DO IT IN EACH TYPE CLASS.
-
-
-# the base socket type class used for handling lightfield display communication
-class BaseSocketType(object):
-
-    # DEFINE CLASS PROPERTIES AS PROTECTED MEMBERS
-    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    type = None                                         # the unique identifier string of a socket type (required for the factory class)
+# the service manager is the factory class for generating service instances of
+# the different service types
+class ServiceManager(object):
 
     # DEFINE CLASS PROPERTIES AS PRIVATE MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    __socket = None                                     # NNG socket instance
-    __version = ""                                      # version string of the socket service
+    __active = None                                    # active service
+    __service_count = []                               # number of created services
+    __service_list = []                                # list of created services
+
+
+    # INSTANCE METHODS - IMPLEMENTED BY BASE CLASS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    # NOTE: Here is the place to implement functions that should not be overriden
+    #       by the subclasses, which represent the specific device types
+    @classmethod
+    def create(cls, service_type):
+        ''' open the service of the specified type '''
+
+        # try to find the class for the specified type, if it exists
+        ServiceTypeClass = [subclass for subclass in BaseServiceType.__subclasses__() if subclass.type == service_type]
+
+        # if a service of the specified type was found
+        if ServiceTypeClass:
+
+            # create the service instance
+            service = ServiceTypeClass[0]()
+
+            # append registered device to the device list
+            cls.__service_list.append(service)
+
+            # make this service the active service if no service is active or this is the first ready service
+            if (not cls.get_active() or (cls.get_active() and not cls.get_active().is_ready())):
+                cls.set_active(service)
+
+            return service
+
+        # otherwise raise an exception
+        raise ValueError("There is no service of type '%s'." % service_type)
+
+    @classmethod
+    def to_list(cls):
+        ''' enumerate the services of this service manager as list '''
+        return cls.__service_list
+
+    @classmethod
+    def count(cls):
+        ''' return number of services '''
+        return len(cls.to_list())
+
+    @classmethod
+    def get_active(cls):
+        ''' return the active service (i.e., the one currently used by the app / user) '''
+        return cls.__active
+
+    @classmethod
+    def set_active(cls, service):
+        ''' set the active service (i.e., the one currently used by the app / user) '''
+        if service in cls.__service_list:
+            cls.__active = service
+            return service
+
+        # else raise exception
+        raise ValueError("The given device with id '%i' is not in the list." % id)
+
+
+# BASE CLASS OF SERVICE TYPES
+###############################################
+# the service type class used for handling lightfield display communication
+# all service type implementations must be a subclass of this base class
+class BaseServiceType(object):
+
+    # DEFINE CLASS PROPERTIES AS PROTECTED MEMBERS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    type = None                                         # the unique identifier string of a service type (required for the factory class)
+
+    # DEFINE CLASS PROPERTIES AS PRIVATE MEMBERS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    __version = ""                                      # version string of the service service
 
     # TEMPLATE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     # NOTE: These methods must be implemented by the subclasses, which represent
     #       the specific service
     def __init__(self):
-        ''' handle initialization of the class instance and the specific socket '''
+        ''' handle initialization of the class instance and the specific service '''
         pass
 
-    def is_socket(self):
-        ''' handles checking if the socket is open '''
-        pass
-
-    def is_connected(self):
-        ''' handles checking if the socket is connected to the service '''
-        pass
-
-    def connect(self):
-        ''' handles connection to the socket service '''
-        pass
-
-    def disconnect(self):
-        ''' handles disconnection from the socket service '''
-        pass
-
-    def close(self):
-        ''' handle closing of the socket '''
+    def is_ready(self):
+        ''' handles check if the service is ready '''
         pass
 
     def get_version(self):
-        ''' method to get the socket / service version '''
+        ''' method to obtain the service version '''
         pass
 
     def get_devices(self):
@@ -102,15 +131,19 @@ class BaseSocketType(object):
         ''' this function should return a list of device configurations '''
         pass
 
+    def close(self):
+        ''' handles closing / deinitializing the service '''
+        pass
+
     # CLASS PROPERTIES
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     @property
-    def socket(self):
-        return self.__socket
+    def service(self):
+        return self.__service
 
-    @socket.setter
-    def socket(self, value):
-        self.__socket = value
+    @service.setter
+    def service(self, value):
+        self.__service = value
 
     @property
     def version(self):
@@ -120,16 +153,18 @@ class BaseSocketType(object):
     def version(self, value):
         self.__version = value
 
-
-# Holo Play Service Socket for Looking Glass lightfield displays
-class HoloPlayServiceSocket(BaseSocketType):
+# SERVICE TYPES FOR LOOKING GLASS DEVICES
+###############################################
+# Holo Play Service for Looking Glass lightfield displays
+class HoloPlayService(BaseServiceType):
 
     # DEFINE CLASS PROPERTIES AS PROTECTED MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    type = 'holoplayservice'                            # the unique identifier string of this socket type (required for the factory class)
+    type = 'holoplayservice'                            # the unique identifier string of this service type (required for the factory class)
 
     # DEFINE CLASS PROPERTIES AS PRIVATE MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    __socket = None                                     # NNG socket
     __address = 'ipc:///tmp/holoplay-driver.ipc'        # driver url (alternative: "ws://localhost:11222/driver")
     __dialer = None                                     # NNG Dialer of the socket
 
@@ -159,91 +194,31 @@ class HoloPlayServiceSocket(BaseSocketType):
         ''' initialize the class instance and create the NNG socket '''
 
         # open a Req0 socket
-        self.socket = pynng.Req0(recv_timeout = timeout)
+        self.__socket = pynng.Req0(recv_timeout = timeout)
 
         # if the NNG socket is open
-        if self.is_socket():
+        if self.__is_socket():
 
-            print("Created socket: ", self.socket)
+            print("Created socket: ", self.__socket)
 
-    def is_socket(self):
-        ''' check if the socket is open '''
-        return (self.socket != None and self.socket != 0)
+            # connect to HoloPlay Service App
+            self.__connect()
 
-    def is_connected(self):
-        ''' check if a connection to a service is active '''
-        return (self.socket != None and self.socket != 0 and self.__dialer)
-
-    def connect(self):
-        ''' connect to holoplay service '''
-
-        # set default error value:
-        # NOTE: - if communication with HoloPlay Service fails, we use the
-        #         direct HID approach to read calibration data
-        error = self.client_error.CLIERR_NOERROR.value
-
-        # if there is not already a connection
-        if self.__dialer == None:
-
-            # try to connect to the HoloPlay Service
-            try:
-
-                self.__dialer = self.socket.dial(self.__address, block = True)
-
-                # TODO: Set proper error values
-                error = self.client_error.CLIERR_NOERROR.value
-
-                print("Connected to HoloPlay Service v%s." % self.get_version())
-
-                return True
-
-            # if the connection was refused
-            except pynng.exceptions.ConnectionRefused:
-
-                # Close socket and reset status variable
-                self.close()
-
-                print("Could not connect. Is HoloPlay Service running?")
-
-                return False
-
-        print("Already connected to HoloPlay Service:", self.__dialer)
-        return True
-
-    def disconnect(self):
-        ''' disconnect from holoplay service '''
-
-        # if a connection is active
-        if self.is_connected():
-            self.__dialer.close()
-            self.__dialer = None
-            print("Closed connection to HoloPlay Service.")
+    def is_ready(self):
+        ''' check if the service is ready: Is NNG socket created and connected to HoloPlay Service App? '''
+        if self.__is_connected():
             return True
 
-        # otherwise
-        print("There is no active connection.")
         return False
 
-    def close(self):
-        ''' close NNG socket '''
-
-        # Close socket and reset status variable
-        if self.is_socket():
-            self.socket.close()
-
-            # reset state variables
-            self.socket = None
-            self.version = ""
-            self.__dialer = None
-
     def get_version(self):
-        ''' get the holoplay service version '''
+        ''' return the holoplay service version '''
 
-        # if the socket is connected
-        if self.is_connected():
+        # if the NNG socket is connected to HoloPlay Service App
+        if self.__is_connected():
 
             # request service version
-            response = self.__nng_send_message({'cmd': {'info': {}}, 'bin': ''})
+            response = self.__send_message({'cmd': {'info': {}}, 'bin': ''})
             if response != None:
 
                 # if no error was received
@@ -259,11 +234,11 @@ class HoloPlayServiceSocket(BaseSocketType):
         ''' send a request to the service and request the connected devices '''
         ''' this function should return a list object '''
 
-        # if the NNG socket is open
-        if self.is_connected():
+        # if the NNG socket is connected to HoloPlay Service App
+        if self.__is_connected():
 
             # request calibration data
-            response = self.__nng_send_message({'cmd': {'info': {}}, 'bin': ''})
+            response = self.__send_message({'cmd': {'info': {}}, 'bin': ''})
             if response != None:
 
                 # if no errors were received
@@ -289,29 +264,106 @@ class HoloPlayServiceSocket(BaseSocketType):
                         return devices
 
 
+    def close(self):
+        ''' disconnect from HoloPlay Service App and close NNG socket '''
+        if self.__is_connected():
+
+            self.__disconnect()
+            self.__close()
+
     # PRIVATE INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    # NOTE: Here is the place to define internal functions required for the
+    # NOTE: Here is the place to define internal functions required only for this
     #       specific service implementation
 
-    def __nng_send_message(self, input_object):
+    def __is_socket(self):
+        ''' check if the socket is open '''
+        return (self.__socket != None and self.__socket != 0)
+
+    def __is_connected(self):
+        ''' check if a connection to a service is active '''
+        return (self.__socket != None and self.__socket != 0 and self.__dialer)
+
+    def __connect(self):
+        ''' connect to holoplay service '''
+
+        # set default error value:
+        # NOTE: - if communication with HoloPlay Service fails, we use the
+        #         direct HID approach to read calibration data
+        error = self.client_error.CLIERR_NOERROR.value
+
+        # if there is not already a connection
+        if self.__dialer == None:
+
+            # try to connect to the HoloPlay Service
+            try:
+
+                self.__dialer = self.__socket.dial(self.__address, block = True)
+
+                # TODO: Set proper error values
+                error = self.client_error.CLIERR_NOERROR.value
+
+                print("Connected to HoloPlay Service v%s." % self.get_version())
+
+                return True
+
+            # if the connection was refused
+            except pynng.exceptions.ConnectionRefused:
+
+                # Close socket and reset status variable
+                self.__close()
+
+                print("Could not connect. Is HoloPlay Service running?")
+
+                return False
+
+        print("Already connected to HoloPlay Service:", self.__dialer)
+        return True
+
+    def __disconnect(self):
+        ''' disconnect from holoplay service '''
+
+        # if a connection is active
+        if self.__is_connected():
+            self.__dialer.close()
+            self.__dialer = None
+            print("Closed connection to HoloPlay Service.")
+            return True
+
+        # otherwise
+        print("There is no active connection.")
+        return False
+
+    def __close(self):
+        ''' close NNG socket '''
+
+        # Close socket and reset status variable
+        if self.__is_socket():
+            self.__socket.close()
+
+            # reset state variables
+            self.__socket = None
+            self.__dialer = None
+            self.version = ""
+
+    def __send_message(self, input_object):
         ''' send a message to HoloPlay Service '''
 
         # if a NNG socket is open
-        if self.is_socket():
+        if self.__is_socket():
 
             # dump a CBOR message
             cbor_dump = cbor.dumps(input_object)
 
             # send it to the socket
-            self.socket.send(cbor_dump)
+            self.__socket.send(cbor_dump)
             # print("---------------")
             # print("Command (" + str(len(cbor_dump)) + " bytes, "+str(len(input_object['bin']))+" binary): ")
             # print(input_object['cmd'])
             # print("---------------")
 
             # receive the CBOR-formatted response
-            response = self.socket.recv()
+            response = self.__socket.recv()
 
             # print("Response (" + str(len(response)) + " bytes): ")
             cbor_load = cbor.loads(response)
@@ -332,51 +384,51 @@ class HoloPlayServiceSocket(BaseSocketType):
         configuration['fringe'] = 0.0
 
 
-# LOOKING GLASS DEVICE MANAGER
+# DEVICE MANAGER FOR LIGHTFIELD DISPLAYS
 ###############################################
-# the device manager is the factory class for generating looking glass device
-# instances of the different device types
-class LookingGlassManager(object):
+# the device manager is the factory class for generating device instances of
+# the different device types
+class DeviceManager(object):
 
     # DEFINE CLASS PROPERTIES AS PRIVATE MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     __dev_count = 0             # number of device instances
     __dev_list = []             # list for initialized device instances
     __dev_active = None         # currently active device instance
-    __dev_socket = None         # the socket used by the device manager
+    __dev_service = None         # the service used by the device manager
 
 
     # CLASS METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     @classmethod
-    def get_socket(cls, socket):
-        ''' get the socket used by this device manager '''
-        return cls.__dev_socket
+    def get_service(cls, service):
+        ''' return the service used by this device manager '''
+        return cls.__dev_service
 
     @classmethod
-    def set_socket(cls, socket):
-        ''' set the socket used by this device manager '''
-        cls.__dev_socket = socket
+    def set_service(cls, service):
+        ''' set the service used by this device manager '''
+        cls.__dev_service = service
 
     @classmethod
     def refresh(cls, emulate_remaining = True):
-        ''' refresh the device list using a given socket service '''
+        ''' refresh the device list using a given service '''
 
-        # if the socket is open and connected
-        if socket and socket.is_connected():
+        # if the service ready
+        if cls.__dev_service and cls.__dev_service.is_ready():
 
             instances = []
 
             # set all (not emulated) devices to "disconnected"
-            # NOTE: We don't delete the devices, because that would be much harder
-            #       to handle when the user already used the device instance
-            #       for doing things
+            # NOTE: We don't delete the devices, because that would be more
+            #       complex to handle when the user already used the specific
+            #       device type instance for their settings
             for d in cls.__dev_list:
                 if d.emulated == False:
                     d.connected = False
 
             # request devices
-            devices = socket.get_devices()
+            devices = cls.__dev_service.get_devices()
             if devices:
 
                 # for each device returned create a LookingGlassDevice instance
@@ -392,8 +444,9 @@ class LookingGlassManager(object):
                         # create a device instance of the corresponding type
                         instance = cls.add_device(device['hardwareVersion'], device)
 
-                        # make the first device the active device if no device is active
-                        if idx == 0 and not cls.get_active(): cls.set_active(instance.id)
+                        # make this device the active device if no device is active or this is the first connected device
+                        if (not cls.get_active() or (cls.get_active() and not cls.get_active().connected)):
+                            cls.set_active(instance.id)
 
                     else:
 
@@ -412,7 +465,7 @@ class LookingGlassManager(object):
         ''' add a new device '''
 
         # try to find the class for the specified type, if it exists
-        DeviceTypeClass = [subclass for subclass in LookingGlassDeviceType.__subclasses__() if subclass.type == device_type]
+        DeviceTypeClass = [subclass for subclass in BaseDeviceType.__subclasses__() if subclass.type == device_type]
 
         # call the corresponding type
         if DeviceTypeClass:
@@ -444,7 +497,7 @@ class LookingGlassManager(object):
             print("Removing device '%s' ..." % (device))
 
             # if this device is the active device, set_active
-            if cls.get_active() == device.id: LookingGlassManager.reset_active()
+            if cls.get_active() == device.id: cls.reset_active()
 
             cls.__dev_list.remove(device)
 
@@ -458,7 +511,7 @@ class LookingGlassManager(object):
         ''' add an emulated device for each supported device type '''
 
         # for each device type which is not in "except" list
-        for DeviceType in set(LookingGlassDeviceType.__subclasses__()) - set([DeviceType for DeviceType in cls.__subclasses__() if DeviceType.type in filter ]):
+        for DeviceType in set(BaseDeviceType.__subclasses__()) - set([DeviceType for DeviceType in cls.__subclasses__() if DeviceType.type in filter ]):
 
             # if not already emulated
             if not (DeviceType.type in [d.type for d in cls.__dev_list if d.emulated == True]):
@@ -477,13 +530,11 @@ class LookingGlassManager(object):
     @classmethod
     def count(cls, show_connected = None, show_emulated = None, filter_by_type = None):
         ''' get number of devices '''
-
         return len(cls.to_list(show_connected, show_emulated, filter_by_type))
 
     @classmethod
     def get_active(cls):
-        ''' get the active device (i.e., the one currently used by the user) '''
-
+        ''' return the active device (i.e., the one currently used by the user) '''
         return cls.__dev_active
 
     @classmethod
@@ -513,7 +564,9 @@ class LookingGlassManager(object):
 
 # BASE CLASS FOR DEVICE TYPES
 ###############################################
-class LookingGlassDeviceType(object):
+# base class for the implementation of different lightfield display types.
+# all device types implemented must be a subclass of this base class
+class BaseDeviceType(object):
 
     # PUBLIC MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -532,13 +585,10 @@ class LookingGlassDeviceType(object):
     #       by the subclasses, which represent the specific device types
 
     def __init__(self, configuration=None):
-        ''' Initialize the device instance '''
+        ''' initialize the device instance '''
 
         # set essential properties of the class instance
-        self.id = LookingGlassManager.count()
-
-        # initialize the device type specific values
-        self.init()
+        self.id = DeviceManager.count()
 
         # if a configuration was passed
         if configuration:
@@ -612,12 +662,11 @@ class LookingGlassDeviceType(object):
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     # NOTE: These methods must be implemented by the subclasses, which represent
     #       the specific device types.
-    def init(self):
-        ''' initialize the type specific values '''
-        pass
-
     def update(self, image, type=None):
-        ''' process the image for the socket service and hand it over for displaying '''
+        ''' do some checks if required and hand it over for displaying '''
+        # NOTE: This method should only pre-process the image, if the device
+        #       type requires that. Then use service methods to display it
+
         pass
 
 
@@ -692,12 +741,12 @@ class LookingGlassDeviceType(object):
 
 
 
-# DEVICE TYPE CLASSES
+# LOOKING GLASS DEVICE TYPES
 ###############################################
 # Looking Glass 8.9inch
-class LookingGlass_8_9inch(LookingGlassDeviceType):
+class LookingGlass_8_9inch(BaseDeviceType):
 
-    # PROTECTED MEMBERS
+    # PUBLIC MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     type = "standard"                # the unique identifier string of this device type
     name = "8.9'' Looking Glass"     # name of this device type
@@ -735,26 +784,23 @@ class LookingGlass_8_9inch(LookingGlassDeviceType):
 
     # INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    def init(self):
-        ''' initialize this specific values of this device type '''
 
-        # define the quilt presets supported by this Looking Glass type
-        self.add_preset("2k Quilt, 32 Views", 2048, 2048, 4, 8)
-        self.add_preset("4k Quilt, 45 Views", 4095, 4095, 5, 9)
-        self.add_preset("8k Quilt, 45 Views", 4096 * 2, 4096 * 2, 5, 9)
-
-    def update(self, image, type=None):
-        ''' do some checks if required and hand it over for displaying '''
-        # NOTE: The code here should only pre-process the image, if the device
-        #       type requires that. socket type and then use socket methods to display it
-
-        pass
 
 
     # PRIVATE INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     # NOTE: Here is the place to define internal functions required for the
     #       specific device type implementation
+
+    def __init__(self, configuration=None):
+        ''' initialize this specific values of this device type '''
+        # call the initialization procedure of the BaseClass
+        super().__init__(configuration)
+
+        # define the quilt presets supported by this Looking Glass type
+        self.add_preset("2k Quilt, 32 Views", 2048, 2048, 4, 8)
+        self.add_preset("4k Quilt, 45 Views", 4095, 4095, 5, 9)
+        self.add_preset("8k Quilt, 45 Views", 4096 * 2, 4096 * 2, 5, 9)
 
     def _template_func(self):
         ''' DEFINE YOUR REQUIRED DEVICE-SPECIFIC FUNCTIONS HERE '''
@@ -763,9 +809,9 @@ class LookingGlass_8_9inch(LookingGlassDeviceType):
 
 
 # Looking Glass Portrait
-class LookingGlass_portrait(LookingGlassDeviceType):
+class LookingGlass_portrait(BaseDeviceType):
 
-    # PROTECTED MEMBERS
+    # PUBLIC MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     type = "portrait"                # the unique identifier string of this device type
     name = "Looking Glass Portrait"  # name of this device type
@@ -802,11 +848,6 @@ class LookingGlass_portrait(LookingGlassDeviceType):
 
     # INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    def init(self):
-        ''' initialize this specific values of this device type '''
-
-        # define the quilt presets supported by this Looking Glass type
-        self.add_preset("Portrait, 48 Views", 3360, 3360, 8, 6)
 
 
 
@@ -815,7 +856,15 @@ class LookingGlass_portrait(LookingGlassDeviceType):
     # NOTE: Here is the place to define internal functions required for the
     #       specific device type implementation
 
-    def _template_func(self):
+    def __init__(self, configuration=None):
+        ''' initialize this specific values of this device type '''
+        # call the initialization procedure of the BaseClass
+        super().__init__(configuration)
+
+        # define the quilt presets supported by this Looking Glass type
+        self.add_preset("Portrait, 48 Views", 3360, 3360, 8, 6)
+
+    def __template_func(self):
         ''' DEFINE YOUR REQUIRED DEVICE-SPECIFIC FUNCTIONS HERE '''
         return None
 
@@ -826,35 +875,29 @@ class LookingGlass_portrait(LookingGlassDeviceType):
 ################################################################################
 print("")
 
-# open a HoloPlay Service socket
-socket = Socket.open('holoplayservice')
+# create a service using "HoloPlay Service" backend
+service = ServiceManager.create('holoplayservice')
 
-# connect the app to the socket service
-socket.connect()
+# make the device manager use the created service
+DeviceManager.set_service(service)
 
-# make the device manager use the created socket
-LookingGlassManager.set_socket(socket)
-
-# request the connected Looking Glasses from the given socket
-LookingGlassManager.refresh()
+# refresh the list of connected devices using the active service
+DeviceManager.refresh()
 
 # create set of emulated devices
-LookingGlassManager.add_emulated()
+DeviceManager.add_emulated()
 
-print('[STATS] Found %i devices in the list:' % LookingGlassManager.count())
-for idx, device in enumerate(LookingGlassManager.to_list()):
+print('[STATS] Found %i devices in the list:' % DeviceManager.count())
+for idx, device in enumerate(DeviceManager.to_list()):
     print(" [%i] %s" % (idx, device,) )
 
-print('[STATS] Found %i connected devices:' % LookingGlassManager.count(show_connected = True, show_emulated = False))
-for idx, device in enumerate(LookingGlassManager.to_list(show_connected = True, show_emulated = False)):
+print('[STATS] Found %i connected devices:' % DeviceManager.count(show_connected = True, show_emulated = False))
+for idx, device in enumerate(DeviceManager.to_list(show_connected = True, show_emulated = False)):
     print(" [%i] %s" % (idx, device,) )
 
-print('[STATS] Found %i emulated devices:' % LookingGlassManager.count(show_connected = False, show_emulated = True))
-for idx, device in enumerate(LookingGlassManager.to_list(show_connected = False, show_emulated = True)):
+print('[STATS] Found %i emulated devices:' % DeviceManager.count(show_connected = False, show_emulated = True))
+for idx, device in enumerate(DeviceManager.to_list(show_connected = False, show_emulated = True)):
     print(" [%i] %s" % (idx, device,) )
 
-# disconnect from socket Service
-socket.disconnect()
-
-# close the socket
-socket.close()
+# close the service
+service.close()
