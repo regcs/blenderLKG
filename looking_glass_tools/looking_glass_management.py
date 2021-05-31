@@ -88,6 +88,7 @@ class BaseLightfieldImageFormat(object):
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     __views = []              # list of views the lightfield is created from
     __views_format = None     # format of the views
+    __metadata = {}           # metadata of the lightfield format
 
 
     # INSTANCE METHODS - IMPLEMENTED BY BASE CLASS
@@ -140,14 +141,15 @@ class BaseLightfieldImageFormat(object):
     def views_format(self, value):
         self.__views_format = value
 
-class LookingGlassQuilt(BaseLightfieldImageFormat):
+    @property
+    def metadata(self):
+        return self.__metadata
 
-    # PRIVATE MEMBERS
-    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    __size = (0, 0)           # size of the quilt in pixels (width, height)
-    __rows = 0                # number of rows in the quilt
-    __columns = 0             # number of columns in the quilt
-    __aspect = 0              # aspect ratio of the views
+    @metadata.setter
+    def metadata(self, value):
+        self.__metadata = value
+
+class LookingGlassQuilt(BaseLightfieldImageFormat):
 
     # INSTANCE METHODS - IMPLEMENTED BY SUBCLASS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -156,10 +158,10 @@ class LookingGlassQuilt(BaseLightfieldImageFormat):
         ''' create a new and empty lightfield image object of type LookingGlassQuilt '''
 
         # store quilt metadata
-        self.size = size
-        self.rows = rows
-        self.columns = columns
-        self.aspect = aspect
+        self.metadata['size'] = size
+        self.metadata['rows'] = rows
+        self.metadata['columns'] = columns
+        self.metadata['aspect'] = aspect
 
     def get_views(self):
         ''' return a 2-tubple with the list of views and their format '''
@@ -169,11 +171,11 @@ class LookingGlassQuilt(BaseLightfieldImageFormat):
         ''' store the list of views and their format '''
 
         # we override the base class function to introduce an additional check
-        if len(views) == self.rows * self.columns:
+        if len(views) == self.metadata['rows'] * self.metadata['columns']:
             # and then call the base class function
             return super().set_views(views, format)
 
-        raise ValueError("Invalid views set. %i views were passed, but %i were required." % (len(views), self.rows * self.columns))
+        raise ValueError("Invalid views set. %i views were passed, but %i were required." % (len(views), self.metadata['rows'] * self.metadata['columns']))
 
     def delete(self, lightfield):
         ''' delete the given lightfield image object '''
@@ -603,8 +605,8 @@ class HoloPlayService(BaseServiceType):
             # convert the lightfield into a suitable format for this service
             bytes = lightfield.decode(LightfieldImage.decoderformat.iobytes)
 
-            # parse the quilt description
-            settings = {'vx': lightfield.rows, 'vy':lightfield.columns, 'vtotal': lightfield.rows * lightfield.columns, 'aspect': lightfield.aspect}
+            # parse the quilt metadata
+            settings = {'vx': lightfield.metadata['rows'], 'vy':lightfield.metadata['columns'], 'vtotal': lightfield.metadata['rows'] * lightfield.metadata['columns'], 'aspect': lightfield.metadata['aspect']}
 
             # pass the quilt to the device
             self.__send_message(self.__wipe())
@@ -1116,7 +1118,7 @@ class BaseDeviceType(object):
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     # NOTE: These methods must be implemented by the subclasses, which represent
     #       the specific device types.
-    def update(self, LightfieldImage):
+    def update(self, lightfield):
         ''' do some checks if required and hand it over for displaying '''
         # NOTE: This method should only pre-process the image, if the device
         #       type requires that. Then call service methods to display it.
@@ -1278,7 +1280,7 @@ class LookingGlass_8_9inch(BaseDeviceType):
 
             raise ServiceError("Service is not specified or not ready.")
 
-        raise TypeError("The given lightfield image of type '%s' is not supported by this device." % type(LightfieldImage))
+        raise TypeError("The given lightfield image of type '%s' is not supported by this device." % type(lightfield))
 
 
     # PRIVATE INSTANCE METHODS
