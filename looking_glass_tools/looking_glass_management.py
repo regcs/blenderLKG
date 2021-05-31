@@ -22,6 +22,8 @@ from enum import Enum
 
 # modules required by the Holo Play Service
 import pynng, cbor, math
+from PIL import Image, ImageOps
+import numpy as np
 
 # just for debugging
 from pprint import pprint
@@ -34,93 +36,283 @@ from time import sleep
 # views using a defined lightfield format
 class LightfieldImage(object):
 
-    # PRIVATE MEMBERS
+    # POSSIBLE FORMATS OF THE VIEWS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    __lightfield_views = []       # list of views the lightfield is created from
+    #   Enum definition for the different formats the lightfield views can be
+    #   passed as
+    class views_format(Enum):
+        opengl_texture = 0
+        numpyarray = 1
+        bytearray = 2
+
+    #   Enum definition for the different formats the lightfield image can be
+    #   transformed to
+    class decoderformat(Enum):
+        iobytes = 0
+        numpyarray = 1
 
 
     # CLASS METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     @classmethod
-    def new(cls, type, views = None):
-        ''' create a lightfield image object of specified type '''
+    def new(cls, format, **kwargs):
+        ''' create an empty lightfield image object of specified format '''
 
         # try to find the class for the specified type, if it exists
-        LightfieldImageType = [subclass for subclass in BaseLightfieldImageType.__subclasses__() if (subclass == service_type)]
+        LightfieldImageFormat = [subclass for subclass in BaseLightfieldImageFormat.__subclasses__() if (subclass == format)]
 
-        if LightfieldImageType:
+        if LightfieldImageFormat:
+            lightfield = LightfieldImageFormat[0](**kwargs)
+            return lightfield
 
-            return True
+        raise TypeError("'%s' is no valid lightfield image format." % format)
 
-    def open(cls, type, views = None):
-        ''' create a lightfield image object of specified type '''
+    @classmethod
+    def open(cls, filepath, format):
+        ''' open a lightfield image object file of specified format from disk '''
 
-        # try to find the class for the specified type, if it exists
-        LightfieldImageType = [subclass for subclass in BaseLightfieldImageType.__subclasses__() if (subclass == service_type)]
+        pass
+    @classmethod
+    def from_buffer(cls, filepath, format):
+        ''' creat a lightfield image object of specified format from a byte buffer '''
+        pass
 
-        if LightfieldImageType:
+    @classmethod
+    def convert(self, lightfield, target_format):
+        ''' convert a lightfield image object to another type '''
+        pass
 
-            return True
-
-
-class BaseLightfieldImageType(object):
+class BaseLightfieldImageFormat(object):
 
     # PRIVATE MEMBERS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    __views = []                # list of views the lightfield is created from
-    __views_format = []         # format of the views
+    __views = []              # list of views the lightfield is created from
+    __views_format = None     # format of the views
 
 
     # INSTANCE METHODS - IMPLEMENTED BY BASE CLASS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    def __init__(cls, type):
-        ''' create a new and empty lightfield image object of specified type '''
-        pass
 
-    def get_views(cls):
+    def get_views(self):
         ''' return the list of views in their original format '''
-        return (cls.__views_format, cls.__views)
-
-    def set_views(cls, views, format):
-        ''' save the list of views in their original format '''
-        cls.__views = views
-        cls.__views_format = format
+        return {'views': self.views, 'format': self.views_format}
 
     # INSTANCE METHODS - IMPLEMENTED BY SUBCLASS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    def __init__(self, **kwargs):
+        ''' create a new and empty lightfield image object of specified type '''
+        pass
 
+    def set_views(self, views, format):
+        ''' store the list of views and their format '''
+        self.views = views
+        self.views_format = format
+        # NOTE: This method might be overriden by subclasses to to perform
+        #       specific validity checks (e.g., expected number of views or formats)
 
-    @classmethod
-    def delete(cls, lightfield):
+    def delete(self, lightfield):
         ''' delete the given lightfield image object '''
         pass
 
-    @classmethod
-    def load(cls, filepath, format):
-        ''' load the given file and convert it to a lightfield image object '''
-        pass
-
-    @classmethod
-    def save(cls, filepath, format):
+    def save(self, filepath, format):
         ''' convert the lightfield to a specific file format and save it '''
         pass
 
-    @classmethod
-    def convert(cls, type):
-        ''' convert the lightfield to another lightfield image type '''
+    def decode(self, format):
+        ''' return the image as the lightfield and return it '''
         pass
 
     # CLASS PROPERTIES
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    # @property
-    # def views(self):
-    #     return self.__lightfield_views
-    #
-    # @views.setter
-    # def views(self, value):
-    #     self.__lightfield_views = value
+    @property
+    def views(self):
+        return self.__views
+
+    @views.setter
+    def views(self, value):
+        self.__views = value
+
+    @property
+    def views_format(self):
+        return self.__views_format
+
+    @views_format.setter
+    def views_format(self, value):
+        self.__views_format = value
+
+class LookingGlassQuilt(BaseLightfieldImageFormat):
+
+    # PRIVATE MEMBERS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    __size = (0, 0)           # size of the quilt in pixels (width, height)
+    __rows = 0                # number of rows in the quilt
+    __columns = 0             # number of columns in the quilt
+    __aspect = 0              # aspect ratio of the views
+
+    # INSTANCE METHODS - IMPLEMENTED BY SUBCLASS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    def __init__(self, size, rows, columns, aspect):
+        ''' create a new and empty lightfield image object of type LookingGlassQuilt '''
+
+        # store quilt metadata
+        self.size = size
+        self.rows = rows
+        self.columns = columns
+        self.aspect = aspect
+
+    def get_views(self):
+        ''' return a 2-tubple with the list of views and their format '''
+        return super().get_views()
+
+    def set_views(self, views, format):
+        ''' store the list of views and their format '''
+
+        # we override the base class function to introduce an additional check
+        if len(views) == self.rows * self.columns:
+            # and then call the base class function
+            return super().set_views(views, format)
+
+        raise ValueError("Invalid views set. %i views were passed, but %i were required." % (len(views), self.rows * self.columns))
+
+    def delete(self, lightfield):
+        ''' delete the given lightfield image object '''
+        pass
+
+    def save(self, filepath, format):
+        ''' convert the lightfield to a specific file format and save it '''
+        pass
+
+    def decode(self, format):
+        ''' return the lightfield image object in a specific format '''
+        buffer = self.__decode(format)
+
+        # if no decoder was found
+        if not buffer:
+            raise TypeError("The format '%s' is not supported." % format)
 
 
+    # PRIVATE INSTANCE METHODS: DECODER
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    # NOTE: Here is the place to define internal functions required only for this
+    #       specific lightfield image implementation
+    def __decode(self, format):
+        ''' return the lightfield image object in a specific format '''
+
+        # TODO: HERE IS THE PLACE TO DEFINE STANDARD CONVERSIONS THAT CAN BE
+        #       USED IN MULTIPLE PROGRAMMS
+
+        # get the views
+        views = self.get_views()['views']
+        views_format = self.get_views()['format']
+
+        # if the image shall be returned as
+        if format == LightfieldImage.decoderformat.iobytes:
+
+            # if the views are in a OpenGL texture format
+            if views_format == LightfieldImage.views_format.opengl_texture:
+
+                # create a quilt in OpenGL texture format
+                quilt_texture = self.__from_views_to_quilt_opengl(views)
+
+                # convert to iobytes
+                quilt_iobytes = self.__from_opengl_texture_to_iobytes(quilt_texture)
+
+                # return the iobytes of the quilt
+                return quilt_iobytes
+
+            # if the views are in a numpy array format
+            elif views_format == LightfieldImage.views_format.numpyarray:
+
+                # create a quilt in OpenGL texture format
+                quilt_numpy = self.__from_views_to_quilt_numpy(views)
+
+                # convert to iobytes
+                quilt_iobytes = self.__from_numpyarray_to_iobytes(quilt)
+
+                # return the iobytes of the quilt
+                return quilt_iobytes
+
+        # this function must return False if the requested format conversion is
+        # not implemented. The idea is, that the user can override the as_format()
+        # method to implement his own, app-specific conversions.
+        return False
+
+
+    # PRIVATE INSTANCE METHODS: VIEWS TO QUILTS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    def __from_views_to_quilt_blender(self, views):
+        ''' convert views given as blender image to a quilt as a blender image '''
+
+        # TODO: CODE TO CONVERT VIEWS TO QUILT
+        pass
+
+    def __from_views_to_quilt_numpyarray(self, views):
+        ''' convert views given as numpy arrays to a quilt as a numpy array '''
+
+        # TODO: CODE TO CONVERT VIEWS TO QUILT
+        pass
+
+    def __from_views_to_quilt_opengl(self, views):
+        ''' convert views given as opengl textures to a quilt as a opengl texture '''
+
+        # TODO: CODE TO CONVERT VIEWS TO QUILT
+        pass
+
+
+    # PRIVATE INSTANCE METHODS: CONVERT BETWEEN DECODERFORMATS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    def __from_numpyarray_to_iobytes(self, data):
+        ''' convert pixel data from numpy array to BytesIO object '''
+
+        # we need to convert the 0-1 floats to integers from 0-255
+        pixels = data.astype(np.uint8, order="C")
+
+        # for some reason the following only works when we create a PIL Image from a bytes-stream
+        # so we need to convert the numpy array to bytes and read that
+        pimg = Image.frombytes("RGBA", (W,H),  pixels.tobytes())
+
+        # the result is flipped, probably due to numpy, flip it back
+        pimg_flipped = ImageOps.flip(pimg)
+
+        # the idea is that we convert the PIL image to a simple file format HoloPlay Service / stb_image can read
+        # and store it in a BytesIO object instead of disk
+        output = io.BytesIO()
+        pimg_flipped.convert('RGBA').save(output, 'BMP')
+
+        # the contents of the BytesIO object
+        return output.getvalue()
+
+    def __from_opengl_texture_to_iobytes(self, data):
+        ''' convert pixel data from opengl texture to BytesIO object '''
+        return True
+
+
+    # CLASS PROPERTIES
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    @property
+    def rows(self):
+        return self.__rows
+
+    @rows.setter
+    def rows(self, value):
+        self.__rows = value
+
+    @property
+    def columns(self):
+        return self.__columns
+
+    @columns.setter
+    def columns(self, value):
+        self.__columns = value
+
+    @property
+    def aspect(self):
+        return self.__aspect
+
+    @aspect.setter
+    def aspect(self, value):
+        self.__aspect = value
 
 
 
@@ -263,6 +455,10 @@ class BaseServiceType(object):
         ''' this function should return a list of device configurations '''
         pass
 
+    def display(self, device, lightfield):
+        ''' display a given lightfield image object on a device '''
+        pass
+
     def __del__(self):
         ''' handles closing / deinitializing the service '''
         pass
@@ -300,6 +496,7 @@ class HoloPlayService(BaseServiceType):
     __socket = None                                     # NNG socket
     __address = 'ipc:///tmp/holoplay-driver.ipc'        # driver url (alternative: "ws://localhost:11222/driver")
     __dialer = None                                     # NNG Dialer of the socket
+    __devices = []                                      # list of devices recognized by this service
 
     # Error
     ###################
@@ -367,11 +564,11 @@ class HoloPlayService(BaseServiceType):
         ''' send a request to the service and request the connected devices '''
         ''' this function should return a list object '''
 
-        # if the NNG socket is connected to HoloPlay Service App
-        if self.__is_connected():
+        # if the service is ready
+        if self.is_ready():
 
             # request calibration data
-            response = self.__send_message({'cmd': {'info': {}}, 'bin': ''})
+            response = self.__send_message(self.__get_devices())
             if response != None:
 
                 # if no errors were received
@@ -396,6 +593,28 @@ class HoloPlayService(BaseServiceType):
                         # return the device list
                         return devices
 
+    def display(self, device, lightfield):
+        ''' display a given lightfield image object on a device '''
+        ''' HoloPlay Service expects a lightfield image in LookingGlassQuilt format '''
+
+        # if the service is ready
+        if self.is_ready():
+
+            # convert the lightfield into a suitable format for this service
+            bytes = lightfield.decode(LightfieldImage.decoderformat.iobytes)
+
+            # parse the quilt description
+            settings = {'vx': lightfield.rows, 'vy':lightfield.columns, 'vtotal': lightfield.rows * lightfield.columns, 'aspect': lightfield.aspect}
+
+            # pass the quilt to the device
+            self.__send_message(self.__wipe())
+            #self.__send_message(self.__show_quilt(bytes, settings))
+
+            print("The lightfield image '%s' is being sent to '%s' ..." % (lightfield, device))
+
+            return True
+
+        raise RuntimeError("The '%s' is not ready." % (self))
 
     def __del__(self):
         ''' disconnect from HoloPlay Service App and close NNG socket '''
@@ -511,13 +730,107 @@ class HoloPlayService(BaseServiceType):
 
     def __calculate_derived(self, configuration):
         ''' calculate the values derived from the calibration json delivered by HoloPlay Service '''
-
-        # calculate any values derived from the configuration values
         configuration['tilt'] = configuration['screenH'] / (configuration['screenW'] * configuration['slope'])
         configuration['pitch'] = - configuration['screenW'] / configuration['DPI']  * configuration['pitch']  * math.sin(math.atan(abs(configuration['slope'])))
         configuration['subp'] = configuration['pitch'] / (3 * configuration['screenW'])
         configuration['ri'], configuration['bi'] = (2,0) if configuration['flipSubp'] else (0,2)
         configuration['fringe'] = 0.0
+
+
+    # PRIVATE STATIC METHODS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    @staticmethod
+    def __get_devices():
+        ''' tell HoloPlay Service to send the configurations of all devices '''
+
+        command = {
+            'cmd': {
+                'info': {},
+            },
+            'bin': '',
+        }
+        return command
+
+    @staticmethod
+    def __hide():
+        ''' tell HoloPlay Service to hide the displayed quilt '''
+
+        command = {
+            'cmd': {
+                'hide': {},
+            },
+            'bin': bytes(),
+        }
+        return command
+
+    @staticmethod
+    def __wipe():
+        ''' tell HoloPlay Service to clear the display '''
+
+        command = {
+            'cmd': {
+                'wipe': {},
+            },
+            'bin': bytes(),
+        }
+        return command
+
+    @staticmethod
+    def __load_quilt(name, settings = None):
+        ''' tell HoloPlay Service to load a cached quilt '''
+        command = {
+            'cmd': {
+                'show': {
+                    'source': 'cache',
+                    'quilt': {
+                        'name': name
+                    },
+                },
+            },
+            'bin': bytes(),
+        }
+
+        # if settings were specified
+        if settings: command['cmd']['show']['quilt']['settings'] = settings
+
+        return command
+
+    @staticmethod
+    def __show_quilt(bindata, settings):
+        ''' tell HoloPlay Service to display the incoming quilt '''
+
+        command = {
+            'cmd': {
+                'show': {
+                    'source': 'bindata',
+                    'quilt': {
+                        'type': 'image',
+                        'settings': settings
+                    }
+                },
+            },
+            'bin': bindata,
+        }
+        return command
+
+    @staticmethod
+    def __cache_quilt(bindata, name, settings):
+        ''' tell HoloPlay Service to cache the incoming quilt '''
+
+        command = {
+            'cmd': {
+                'cache': {
+                    'quilt': {
+                        'name': name,
+                        'type': 'image',
+                        'settings': settings
+                    }
+                }
+            },
+            'bin': bindata,
+        }
+        return command
+
 
 
 # DEVICE MANAGER FOR LIGHTFIELD DISPLAYS
@@ -711,7 +1024,7 @@ class BaseDeviceType(object):
     __service = None        # the service the device was registered with
     __emulated = False      # is the device instance emulated?
     __connected = True      # is the device still connected?
-    __presets = []  # list for the quilt presets
+    __presets = []          # list for the quilt presets
 
 
     # INSTANCE METHODS - IMPLEMENTED BY BASE CLASS
@@ -732,7 +1045,7 @@ class BaseDeviceType(object):
             self.configuration = configuration
 
             # bind the specified service to the device instance
-            self.service = sevice
+            self.service = service
 
             # set the state variables for connected devices
             self.connected = True
@@ -899,7 +1212,8 @@ class LookingGlass_8_9inch(BaseDeviceType):
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     type = "standard"                # the unique identifier string of this device type
     name = "8.9'' Looking Glass"     # name of this device type
-    formats = []                     # list of lightfield image types that are supported
+    aspect = 1.8                     # aspect ratio of the display (width / height)
+    formats = [LookingGlassQuilt]    # list of lightfield image formats that are supported
     emulated_configuration = {       # configuration used for emulated devices of this type
 
             # device information
@@ -946,13 +1260,25 @@ class LookingGlass_8_9inch(BaseDeviceType):
         self.add_preset("4k Quilt, 45 Views", 4095, 4095, 5, 9)
         self.add_preset("8k Quilt, 45 Views", 4096 * 2, 4096 * 2, 5, 9)
 
-    def update(self, LightfieldImage):
+    def display(self, lightfield):
         ''' display a given lightfield image object on the device '''
-        # NOTE: This method should only pre-process the image, if the device
-        #       type requires that. Then call service methods to display it.
-        # if type(LightfieldImage) in
+        # NOTE: This method should only do validity checks.
+        #       Then call service methods to display it.
 
-        pass
+        # if the given lightfield image format is supported
+        if type(lightfield) in self.formats:
+
+            # if a service is bound and running
+            if self.service and self.service.is_ready():
+                print("Requesting '%s' to display the lightfield on '%s' ..." % (self.service, self))
+                # request the service to display the lightfield on the device
+                self.service.display(self, lightfield)
+
+                return True
+
+            raise ServiceError("Service is not specified or not ready.")
+
+        raise TypeError("The given lightfield image of type '%s' is not supported by this device." % type(LightfieldImage))
 
 
     # PRIVATE INSTANCE METHODS
@@ -1058,6 +1384,16 @@ for idx, device in enumerate(DeviceManager.to_list(show_connected = True, show_e
 print('[STATS] Found %i emulated devices:' % DeviceManager.count(show_connected = False, show_emulated = True))
 for idx, device in enumerate(DeviceManager.to_list(show_connected = False, show_emulated = True)):
     print(" [%i] %s" % (idx, device,) )
+
+
+# create a lightfield image
+quilt = LightfieldImage.new(LookingGlassQuilt, size=(0,0,), rows=9, columns=5, aspect=DeviceManager.get_active().aspect)
+
+# pass some views in a given format
+quilt.set_views([i for i in range(0, 45)], LightfieldImage.views_format.opengl_texture)
+
+# get active device
+if DeviceManager.get_active(): DeviceManager.get_active().display(quilt)
 
 # remove the service
 ServiceManager.remove(service)
