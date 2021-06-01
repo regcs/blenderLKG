@@ -16,7 +16,7 @@
 #
 # ##### END GPL LICENSE BLOCK #####
 
-import io
+import io, os
 import timeit
 from enum import Enum
 
@@ -44,11 +44,19 @@ class LightfieldImage(object):
         numpyarray = 1
         bytesio = 2
 
+        @classmethod
+        def to_list(cls):
+            return list(map(lambda enum: enum, cls))
+
     #   Enum definition for the different formats the lightfield image can be
     #   transformed to
     class decoderformat(Enum):
         numpyarray = 1
         bytesio = 2
+
+        @classmethod
+        def to_list(cls):
+            return list(map(lambda enum: enum, cls))
 
 
     # CLASS METHODS
@@ -67,10 +75,24 @@ class LightfieldImage(object):
         raise TypeError("'%s' is no valid lightfield image format." % format)
 
     @classmethod
-    def open(cls, filepath, format):
+    def open(cls, filepath, format, **kwargs):
         ''' open a lightfield image object file of specified format from disk '''
 
-        pass
+        # try to find the class for the specified format, if it exists
+        LightfieldImageFormat = [subclass for subclass in BaseLightfieldImageFormat.__subclasses__() if (subclass == format)]
+        if LightfieldImageFormat:
+
+            # create a new lightfield image instance of the specified format
+            lightfield = LightfieldImageFormat[0](**kwargs)
+
+            # load the image
+            lightfield.load(filepath)
+
+            # return the lightfield image instance of the specified format
+            return lightfield
+
+        raise TypeError("'%s' is no valid lightfield image format." % format)
+
     @classmethod
     def from_buffer(cls, filepath, format):
         ''' creat a lightfield image object of specified format from a byte buffer '''
@@ -88,16 +110,18 @@ class BaseLightfieldImageFormat(object):
     __views = []              # list of views the lightfield is created from
     __views_format = None     # format of the views
     __metadata = {}           # metadata of the lightfield format
+    __colormode = 'RGBA'      # colormode of the image data
+    __colorchannels = 4       # number of color channels in the image data
 
 
     # INSTANCE METHODS - IMPLEMENTED BY BASE CLASS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
     def get_views(self):
         ''' return the list of views in their original format '''
         return {'views': self.views, 'format': self.views_format}
 
-    # INSTANCE METHODS - IMPLEMENTED BY SUBCLASS
+
+    # INSTANCE METHODS - IMPLEMENTED BY SUBCLASSES
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     def __init__(self, **kwargs):
         ''' create a new and empty lightfield image object of specified type '''
@@ -112,6 +136,10 @@ class BaseLightfieldImageFormat(object):
 
     def delete(self, lightfield):
         ''' delete the given lightfield image object '''
+        pass
+
+    def load(self, filepath):
+        ''' load the lightfield from a file '''
         pass
 
     def save(self, filepath, format):
@@ -148,20 +176,39 @@ class BaseLightfieldImageFormat(object):
     def metadata(self, value):
         self.__metadata = value
 
+    @property
+    def colormode(self):
+        return self.__colormode
+
+    @colormode.setter
+    def colormode(self, value):
+        self.__colormode = value
+
+    @property
+    def colorchannels(self):
+        return self.__colorchannels
+
+    @colorchannels.setter
+    def colorchannels(self, value):
+        self.__colorchannels = value
+
 class LookingGlassQuilt(BaseLightfieldImageFormat):
 
     # INSTANCE METHODS - IMPLEMENTED BY SUBCLASS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-    def __init__(self, width, height, rows, columns, aspect):
+    def __init__(self, width=0, height=0, rows=0, columns=0):
         ''' create a new and empty lightfield image object of type LookingGlassQuilt '''
+
+        # TODO: Implement this as arguments in a reasonable way
+        # store color information
+        self.colormode = 'RGBA'
+        self.colorchannels = 4
 
         # store quilt metadata
         self.metadata['width'] = width
         self.metadata['height'] = height
         self.metadata['rows'] = rows
         self.metadata['columns'] = columns
-        self.metadata['aspect'] = aspect
 
     def get_views(self):
         ''' return a 2-tubple with the list of views and their format '''
@@ -180,6 +227,66 @@ class LookingGlassQuilt(BaseLightfieldImageFormat):
     def delete(self, lightfield):
         ''' delete the given lightfield image object '''
         pass
+
+    def load(self, filepath):
+        ''' load the quilt file from the given path and convert to numpy views '''
+        if os.path.exists(filepath):
+
+            # use PIL to load the image from disk
+            # NOTE: This makes nearly all of the execution time of the load() command
+            quilt_image = Image.open(filepath)#.convert(self.metadata['colormode'])
+            if quilt_image:
+
+                # convert it to a numpy array
+                quilt_np = np.asarray(quilt_image)
+
+                # store the information about the quilt image
+                self.metadata['width'], self.metadata['height'], self.colorchannels = quilt_np.shape
+
+                # get colormode
+                self.colormode = quilt_image.mode
+
+                # TODO: USE METADATA OF THE QUILT IMAGE
+                # estimate the format using the size
+                if quilt_image.width == 2048 and quilt_image.height == 2048:
+
+                    # store new row and column number in the metadata
+                    self.metadata['rows'] = 8
+                    self.metadata['columns'] = 4
+
+                elif quilt_image.width == 4095 and quilt_image.height == 4095:
+
+                    # store new row and column number in the metadata
+                    self.metadata['rows'] = 9
+                    self.metadata['columns'] = 5
+
+                elif quilt_image.width == 8192 and quilt_image.height == 8192:
+
+                    # store new row and column number in the metadata
+                    self.metadata['rows'] = 9
+                    self.metadata['columns'] = 5
+
+                elif quilt_image.width == 3360 and quilt_image.height == 3360:
+
+                    # store new row and column number in the metadata
+                    self.metadata['rows'] = 8
+                    self.metadata['columns'] = 6
+
+                # calculate the view dimensions
+                view_width = int(quilt_image.width / self.metadata['columns'])
+                view_height = int(quilt_image.height / self.metadata['rows'])
+
+                # then we reshape the quilt into the views
+                views = quilt_np.reshape(self.metadata['rows'], view_height, self.metadata['columns'], view_width, self.colorchannels).swapaxes(1, 2).reshape(self.metadata['rows'] * self.metadata['columns'], view_height, view_width, self.colorchannels)
+
+                # set the views and views format
+                self.set_views([view for view in views], LightfieldImage.views_format.numpyarray)
+
+                return True
+
+            raise TypeError("The quilt image was found but could not be opened. The image format is not supported.")
+
+        raise FileNotFoundError("The quilt image was not found.")
 
     def save(self, filepath, format):
         ''' convert the lightfield to a specific file format and save it '''
@@ -254,7 +361,7 @@ class LookingGlassQuilt(BaseLightfieldImageFormat):
         idx, view_height, view_width, color_channels = views.shape
 
         # then we reshaoe the numpy array to the quilt shape
-        quilt_np = views.reshape(self.metadata['rows'], self.metadata['columns'], view_height, view_width, color_channels).swapaxes(1, 2).reshape(view_height*self.metadata['rows'], view_width*self.metadata['columns'], color_channels)
+        quilt_np = views.reshape(self.metadata['rows'], self.metadata['columns'], view_height, view_width, color_channels).swapaxes(1, 2).reshape(view_height * self.metadata['rows'], view_width * self.metadata['columns'], color_channels)
 
         # TODO: CODE TO CONVERT VIEWS TO QUILT
         return quilt_np
@@ -265,20 +372,21 @@ class LookingGlassQuilt(BaseLightfieldImageFormat):
     def __from_numpyarray_to_bytesio(self, data):
         ''' convert pixel data from numpy array to BytesIO object '''
 
+        start = timeit.default_timer()
         # we need to convert the 0-1 floats to integers from 0-255
         pixels = data.astype(np.uint8, order="C")
+        print("to numpy", timeit.default_timer() -start)
 
         # for some reason the following only works when we create a PIL Image from a bytes-stream
         # so we need to convert the numpy array to bytes and read that
-        pimg = Image.frombytes("RGBA", (self.metadata['width'], self.metadata['height']),  pixels.tobytes())
+        pimg = Image.frombytes(self.colormode, (self.metadata['width'], self.metadata['height']),  pixels.tobytes())
 
-        # # the result is flipped, probably due to numpy, flip it back
-        # pimg_flipped = ImageOps.flip(pimg)
-
+        print("to PIL", timeit.default_timer() -start)
         # the idea is that we convert the PIL image to a simple file format HoloPlay Service / stb_image can read
         # and store it in a BytesIO object instead of disk
         bytesio = io.BytesIO()
         pimg.convert('RGBA').save(bytesio, 'BMP')
+        print("to bytesio", timeit.default_timer() -start)
 
         # return the bytesio object
         return bytesio
@@ -593,7 +701,7 @@ class HoloPlayService(BaseServiceType):
                 print("Obtained bytes:", timeit.default_timer() - start)
 
                 # parse the quilt metadata
-                settings = {'vx': lightfield.metadata['columns'], 'vy':lightfield.metadata['rows'], 'vtotal': lightfield.metadata['rows'] * lightfield.metadata['columns'], 'aspect': lightfield.metadata['aspect']}
+                settings = {'vx': lightfield.metadata['columns'], 'vy':lightfield.metadata['rows'], 'vtotal': lightfield.metadata['rows'] * lightfield.metadata['columns'], 'aspect': device.aspect}
 
                 # pass the quilt to the device
                 self.__send_message(self.__show_quilt(bytes, settings))
@@ -1246,6 +1354,10 @@ class LookingGlass_8_9inch(BaseDeviceType):
         # call the initialization procedure of the BaseClass
         super().__init__(service, configuration)
 
+        # TODO: - transfer preset functions to LookingGlassQuilt class
+        #       - add an enumeration for the prefix which can be called by the device
+        #       - use LookingGlassQuilt.presets.to_list() to get enumeration values
+
         # define the quilt presets supported by this Looking Glass type
         self.add_preset("2k Quilt, 32 Views", 2048, 2048, 4, 8)
         self.add_preset("4k Quilt, 45 Views", 4095, 4095, 5, 9)
@@ -1261,6 +1373,7 @@ class LookingGlass_8_9inch(BaseDeviceType):
 
             # if a service is bound
             if self.service:
+
                 print("Requesting '%s' to display the lightfield on '%s' ..." % (self.service, self))
                 # request the service to display the lightfield on the device
                 self.service.display(self, lightfield, custom_decoder)
@@ -1381,24 +1494,32 @@ for idx, device in enumerate(DeviceManager.to_list(show_connected = False, show_
 myLookingGlass = DeviceManager.get_active()
 if myLookingGlass:
 
-    # create some dummy views:
-    dummy_views = []
-    view_image = Image.open('looking_glass_tools/view.png').convert('RGBA')
-    for i in range(0, 45):
+    # # create some dummy views:
+    # dummy_views = []
+    # view_image = Image.open('looking_glass_tools/view.png').convert('RGBA')
+    # for i in range(0, 45):
+    #
+    #     view = np.asarray(view_image)
+    #     dummy_views.append(view)
+    #
+    # # create a lightfield image in LookingGlassQuilt format
+    # quilt = LightfieldImage.new(LookingGlassQuilt, width=4095, height=4095, rows=9, columns=5)
+    #
+    # # pass some views in a given format
+    # quilt.set_views(dummy_views, LightfieldImage.views_format.numpyarray)
+    #
+    # # display the quilt
+    # myLookingGlass.display(quilt)
+    #
+    # sleep(1)
 
-        view = np.asarray(view_image)
-        dummy_views.append(view)
-
-    # create a lightfield image in LookingGlassQuilt format
-    quilt = LightfieldImage.new(LookingGlassQuilt, width=4095, height=4095, rows=9, columns=5, aspect=myLookingGlass.aspect)
-
-    # pass some views in a given format
-    quilt.set_views(dummy_views, LightfieldImage.views_format.numpyarray)
+    # load a lightfield image in LookingGlassQuilt format
+    TestQuilt = LightfieldImage.open('looking_glass_tools/quilt.png', LookingGlassQuilt)
 
     # display the quilt
-    myLookingGlass.display(quilt)
+    myLookingGlass.display(TestQuilt)
 
-sleep(5)
+    sleep(1)
 
 # remove the service
 ServiceManager.remove(service)
