@@ -127,17 +127,6 @@ class BaseLightfieldImageFormat(object):
         ''' create a new and empty lightfield image object of specified type '''
         pass
 
-    def set_views(self, views, format):
-        ''' store the list of views and their format '''
-        self.views = views
-        self.views_format = format
-        # NOTE: This method might be overriden by subclasses to to perform
-        #       specific validity checks (e.g., expected number of views or formats)
-
-    def delete(self, lightfield):
-        ''' delete the given lightfield image object '''
-        pass
-
     def load(self, filepath):
         ''' load the lightfield from a file '''
         pass
@@ -145,6 +134,17 @@ class BaseLightfieldImageFormat(object):
     def save(self, filepath, format):
         ''' convert the lightfield to a specific file format and save it '''
         pass
+
+    def delete(self, lightfield):
+        ''' delete the given lightfield image object '''
+        pass
+
+    def set_views(self, views, format):
+        ''' store the list of views and their format '''
+        self.views = views
+        self.views_format = format
+        # NOTE: This method might be overriden by subclasses to to perform
+        #       specific validity checks (e.g., expected number of views or formats)
 
     def decode(self, format):
         ''' return the image as the lightfield and return it '''
@@ -194,92 +194,141 @@ class BaseLightfieldImageFormat(object):
 
 class LookingGlassQuilt(BaseLightfieldImageFormat):
 
+    # PUBLIC MEMBERS
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    # supported quilt formats
+    class formats:
+
+        __dict = {
+
+            # first gen devices
+            1: {'description': "2k Quilt, 32 Views", 'quilt_width': 2048, 'quilt_height': 2048, 'view_width': 512, 'view_height': 256, 'columns': 4, 'rows': 8 },
+            2: {'description': "4k Quilt, 45 Views", 'quilt_width': 4096, 'quilt_height': 4096, 'view_width': 819, 'view_height': 455, 'columns': 5, 'rows': 9 },
+            3: {'description': "8k Quilt, 45 Views", 'quilt_width': 8192, 'quilt_height': 8192, 'view_width': 1638, 'view_height': 910, 'columns': 5, 'rows': 9 },
+
+            #Looking Glass Portrait
+            4: {'description': "Portrait, 48 Views", 'quilt_width': 3360, 'quilt_height': 3360, 'view_width': 420, 'view_height': 560, 'columns': 8, 'rows': 6 },
+            5: {'description': "Portrait, 91 Views", 'quilt_width': 4095, 'quilt_height': 4225, 'view_width': 585, 'view_height': 325, 'columns': 7, 'rows': 13 },
+
+        }
+
+        @classmethod
+        def add(cls, values):
+            ''' add a new format by passing a dict '''
+            cls.__dict[len(cls.__dict) + 1] = values
+            return len(cls.__dict)
+
+        @classmethod
+        def remove(cls, id):
+            ''' remove an existing format '''
+            cls.__dict.pop(id, None)
+
+        @classmethod
+        def get(cls, id=None):
+            ''' return the complete dictionary or the dictionary of a specific format '''
+            if not id: return cls.__dict
+            else:      return cls.__dict[id]
+
+        @classmethod
+        def set(cls, id, values):
+            ''' modify an existing format by passing a dict '''
+            if id in cls.__dict.keys(): cls.__dict[id] = values
+
+
     # INSTANCE METHODS - IMPLEMENTED BY SUBCLASS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    def __init__(self, width=0, height=0, rows=0, columns=0):
+    def __init__(self, id=None):
         ''' create a new and empty lightfield image object of type LookingGlassQuilt '''
 
-        # TODO: Implement this as arguments in a reasonable way
-        # store color information
-        self.colormode = 'RGBA'
-        self.colorchannels = 4
+        # if no quilt format id was passed
+        if not id:
 
-        # store quilt metadata
-        self.metadata['width'] = width
-        self.metadata['height'] = height
-        self.metadata['rows'] = rows
-        self.metadata['columns'] = columns
+            # TODO: Implement this as arguments in a reasonable way
+            # store color information
+            self.colormode = 'RGBA'
+            self.colorchannels = 4
 
-    def get_views(self):
-        ''' return a 2-tubple with the list of views and their format '''
-        return super().get_views()
+            # store quilt metadata
+            self.metadata['quilt_width'] = 0
+            self.metadata['quilt_height'] = 0
+            self.metadata['view_width'] = 0
+            self.metadata['view_height'] = 0
+            self.metadata['rows'] = 0
+            self.metadata['columns'] = 0
+            self.metadata['count'] = 0
 
-    def set_views(self, views, format):
-        ''' store the list of views and their format '''
+        # if a valid id was passed
+        elif id in LookingGlassQuilt.formats.get().keys():
 
-        # we override the base class function to introduce an additional check
-        if len(views) == self.metadata['rows'] * self.metadata['columns']:
-            # and then call the base class function
-            return super().set_views(views, format)
+            # TODO: Implement this as arguments in a reasonable way
+            # store color information
+            self.colormode = 'RGBA'
+            self.colorchannels = 4
 
-        raise ValueError("Invalid views set. %i views were passed, but %i were required." % (len(views), self.metadata['rows'] * self.metadata['columns']))
+            # store quilt metadata
+            self.metadata['quilt_width'] = LookingGlassQuilt.formats.get(id)['quilt_width']
+            self.metadata['quilt_height'] = LookingGlassQuilt.formats.get(id)['quilt_height']
+            self.metadata['view_width'] = LookingGlassQuilt.formats.get(id)['view_width']
+            self.metadata['view_height'] = LookingGlassQuilt.formats.get(id)['view_height']
+            self.metadata['rows'] = LookingGlassQuilt.formats.get(id)['rows']
+            self.metadata['columns'] = LookingGlassQuilt.formats.get(id)['columns']
+            self.metadata['count'] = self.metadata['rows'] * self.metadata['columns']
 
-    def delete(self, lightfield):
-        ''' delete the given lightfield image object '''
-        pass
+        else:
+
+            raise TypeError("There is no quilt format with the id '%i'. Please choose one of the following: %s" % (id, LookingGlassQuilt.formats.get()))
 
     def load(self, filepath):
         ''' load the quilt file from the given path and convert to numpy views '''
         if os.path.exists(filepath):
 
+            start = timeit.default_timer()
             # use PIL to load the image from disk
             # NOTE: This makes nearly all of the execution time of the load() command
             quilt_image = Image.open(filepath)#.convert(self.metadata['colormode'])
             if quilt_image:
 
+                # reset state variable
+                found = False
+
+                # for each supported quilt format
+                for qf in LookingGlassQuilt.formats.get().values():
+
+                    # if the image dimensions matches one of the quilt formats
+                    # NOTE: We allow a difference of +/-1 px in width and height
+                    #       to accomodate for rounding errors in view width/height
+                    if quilt_image.width in range(qf['quilt_width'] - 1, qf['quilt_width'] + 1) and quilt_image.height in range(qf['quilt_height'] - 1, qf['quilt_height'] + 1):
+
+                        # store new row and column number in the metadata
+                        self.metadata['rows'] = qf['rows']
+                        self.metadata['columns'] = qf['columns']
+                        self.metadata['count'] = qf['rows'] * qf['columns']
+                        self.metadata['view_width'] = qf['view_width']
+                        self.metadata['view_height'] = qf['view_height']
+
+                        # update state variable
+                        found = True
+
+                # if no fitting quilt format was found
+                if not found: raise TypeError("The loaded image is not in a supported format. Please check the image dimensions.")
+
+                # TODO: This takes 0.5 to 1.5 s ... is there a faster way?
                 # convert it to a numpy array
-                quilt_np = np.asarray(quilt_image)
+                quilt_np = np.asarray(quilt_image, dtype=np.uint8)
+                # crop the image in case, the size is incorrect due to rounding
+                # errors
+                quilt_np = quilt_np[0:(self.metadata['rows'] * self.metadata['view_height']), 0:(self.metadata['columns'] * self.metadata['view_width']), :]
 
-                # store the information about the quilt image
-                self.metadata['width'], self.metadata['height'], self.colorchannels = quilt_np.shape
-
-                # get colormode
+                # store the colormode
                 self.colormode = quilt_image.mode
 
-                # TODO: USE METADATA OF THE QUILT IMAGE
-                # estimate the format using the size
-                if quilt_image.width == 2048 and quilt_image.height == 2048:
+                # store the size and color depth in the meta data of the instance
+                self.metadata['quilt_height'], self.metadata['quilt_width'], self.colorchannels = quilt_np.shape
 
-                    # store new row and column number in the metadata
-                    self.metadata['rows'] = 8
-                    self.metadata['columns'] = 4
+                # then we reshape the quilt into the array of individual views ...
+                views = quilt_np.reshape(self.metadata['rows'], self.metadata['view_height'], self.metadata['columns'], self.metadata['view_width'], self.colorchannels).swapaxes(1, 2).reshape(self.metadata['count'], self.metadata['view_height'], self.metadata['view_width'], self.colorchannels)
 
-                elif quilt_image.width == 4095 and quilt_image.height == 4095:
-
-                    # store new row and column number in the metadata
-                    self.metadata['rows'] = 9
-                    self.metadata['columns'] = 5
-
-                elif quilt_image.width == 8192 and quilt_image.height == 8192:
-
-                    # store new row and column number in the metadata
-                    self.metadata['rows'] = 9
-                    self.metadata['columns'] = 5
-
-                elif quilt_image.width == 3360 and quilt_image.height == 3360:
-
-                    # store new row and column number in the metadata
-                    self.metadata['rows'] = 8
-                    self.metadata['columns'] = 6
-
-                # calculate the view dimensions
-                view_width = int(quilt_image.width / self.metadata['columns'])
-                view_height = int(quilt_image.height / self.metadata['rows'])
-
-                # then we reshape the quilt into the views
-                views = quilt_np.reshape(self.metadata['rows'], view_height, self.metadata['columns'], view_width, self.colorchannels).swapaxes(1, 2).reshape(self.metadata['rows'] * self.metadata['columns'], view_height, view_width, self.colorchannels)
-
-                # set the views and views format
+                # ... and pass the views and views format to the instance
                 self.set_views([view for view in views], LightfieldImage.views_format.numpyarray)
 
                 return True
@@ -292,13 +341,27 @@ class LookingGlassQuilt(BaseLightfieldImageFormat):
         ''' convert the lightfield to a specific file format and save it '''
         pass
 
-    def decode(self, format, subset = None, custom_decoder = None):
-        ''' return the lightfield image object in a specific format '''
+    def delete(self, lightfield):
+        ''' delete the given lightfield image object '''
+        pass
 
-        # TODO: Implement 'subset' parameter which enables transfering only a
-        #       subset of the views in the final quilt (e.g., for faster live preview).
-        #       'subset' should be a dict specifying both the 'start position' of
-        #       the first view in the final quilt, and the 'view_subst'
+    def get_views(self):
+        ''' return a 2-tubple with the list of views and their format '''
+        return super().get_views()
+
+    def set_views(self, views, format):
+        ''' store the list of views and their format '''
+
+        # we override the base class function to introduce an additional check
+        if len(views) == self.metadata['count']:
+
+            # and then call the base class function
+            return super().set_views(views, format)
+
+        raise ValueError("Invalid view set. %i views were passed, but %i were required." % (len(views), self.metadata['count']))
+
+    def decode(self, format, custom_decoder = None):
+        ''' return the lightfield image object in a specific format '''
 
         # get the views
         views = self.get_views()['views']
@@ -342,26 +405,18 @@ class LookingGlassQuilt(BaseLightfieldImageFormat):
     # PRIVATE INSTANCE METHODS: VIEWS TO QUILTS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     # NOTE: this function is based on https://stackoverflow.com/questions/42040747/more-idiomatic-way-to-display-images-in-a-grid-with-numpy
-    def __from_views_to_quilt_numpy(self, dtype = np.uint8, subset = None):
+    def __from_views_to_quilt_numpy(self, dtype = np.uint8):
         ''' convert views given as numpy arrays to a quilt as a numpy array '''
-
-        # TODO: Implement 'subset' parameter which enables transfering only a
-        #       subset of the views in the final quilt (e.g., for faster live preview).
-        #       'subset' should be a dict specifying both the 'start position' of
-        #       the first view in the final quilt, and the 'view_subst'
 
         # get the views
         views = self.get_views()['views']
         views_format = self.get_views()['format']
 
         # create a numpy array from the list of views
-        views = np.array(views)
-
-        # first we extract the view information from the view array
-        idx, view_height, view_width, color_channels = views.shape
+        views = np.asarray(views)
 
         # then we reshaoe the numpy array to the quilt shape
-        quilt_np = views.reshape(self.metadata['rows'], self.metadata['columns'], view_height, view_width, color_channels).swapaxes(1, 2).reshape(view_height * self.metadata['rows'], view_width * self.metadata['columns'], color_channels)
+        quilt_np = views.reshape(self.metadata['rows'], self.metadata['columns'], self.metadata['view_height'], self.metadata['view_width'], self.colorchannels).swapaxes(1, 2).reshape(self.metadata['quilt_height'], self.metadata['quilt_width'], self.colorchannels)
 
         # TODO: CODE TO CONVERT VIEWS TO QUILT
         return quilt_np
@@ -372,35 +427,25 @@ class LookingGlassQuilt(BaseLightfieldImageFormat):
     def __from_numpyarray_to_bytesio(self, data):
         ''' convert pixel data from numpy array to BytesIO object '''
 
-        start = timeit.default_timer()
-        # we need to convert the 0-1 floats to integers from 0-255
-        pixels = data.astype(np.uint8, order="C")
-        print("to numpy", timeit.default_timer() -start)
+        # create a PIL image from the numpy
+        quilt_image = Image.fromarray(data)
 
-        # for some reason the following only works when we create a PIL Image from a bytes-stream
-        # so we need to convert the numpy array to bytes and read that
-        pimg = Image.frombytes(self.colormode, (self.metadata['width'], self.metadata['height']),  pixels.tobytes())
-
-        print("to PIL", timeit.default_timer() -start)
-        # the idea is that we convert the PIL image to a simple file format HoloPlay Service / stb_image can read
-        # and store it in a BytesIO object instead of disk
+        # create a BytesIO object and save the numpy image data therein
         bytesio = io.BytesIO()
-        pimg.convert('RGBA').save(bytesio, 'BMP')
-        print("to bytesio", timeit.default_timer() -start)
+        quilt_image.save(bytesio, 'BMP')
 
         # return the bytesio object
         return bytesio
 
-
     # CLASS PROPERTIES
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    # @property
-    # def aspect(self):
-    #     return self.__aspect
-    #
-    # @aspect.setter
-    # def aspect(self, value):
-    #     self.__aspect = value
+    # @property                   # read-only property
+    # def formats(self):
+    #     return self.__formats
+
+    # @presets.setter
+    # def presets(self, value):
+    #     self.__formats = value
 
 
 
@@ -594,7 +639,6 @@ class HoloPlayService(BaseServiceType):
     #   This encapsulates potential errors with the connection itself,
     #   as opposed to hpc_service_error, which describes potential error messages
     #   included in a successful reply from HoloPlay Service.
-
     class client_error(Enum):
         CLIERR_NOERROR = 0
         CLIERR_NOSERVICE = 1
@@ -682,7 +726,7 @@ class HoloPlayService(BaseServiceType):
                         # return the device list
                         return devices
 
-    def display(self, device, lightfield, custom_decoder = None):
+    def display(self, lightfield, aspect=None, custom_decoder = None):
         ''' display a given lightfield image object on a device '''
         ''' HoloPlay Service expects a lightfield image in LookingGlassQuilt format '''
 
@@ -693,21 +737,22 @@ class HoloPlayService(BaseServiceType):
             # NOTE: HoloPlay Service expects a byte stream
             start = timeit.default_timer()
             bytesio = lightfield.decode(self.__decoder_format, custom_decoder)
-            print("Decoded:", timeit.default_timer() - start)
+            print("Decoded lightfield data to BytesIO stream in %.3f s." % (timeit.default_timer() - start))
 
             if type(bytesio) == io.BytesIO:
                 # convert to bytes
                 bytes = bytesio.getvalue()
-                print("Obtained bytes:", timeit.default_timer() - start)
+
+                # free the memory buffer
+                bytesio.close()
 
                 # parse the quilt metadata
-                settings = {'vx': lightfield.metadata['columns'], 'vy':lightfield.metadata['rows'], 'vtotal': lightfield.metadata['rows'] * lightfield.metadata['columns'], 'aspect': device.aspect}
+                settings = {'vx': lightfield.metadata['columns'], 'vy':lightfield.metadata['rows'], 'vtotal': lightfield.metadata['rows'] * lightfield.metadata['columns'], 'aspect': aspect}
 
                 # pass the quilt to the device
+                print("The lightfield image '%s' is being sent to '%s' ..." % (lightfield, self))
                 self.__send_message(self.__show_quilt(bytes, settings))
-                print("Sent message: ", timeit.default_timer() - start)
-
-                print("The lightfield image '%s' is being sent to '%s' ..." % (lightfield, device))
+                print("Sending message and waiting for response took %.3f s." % (timeit.default_timer() - start))
 
                 return True
 
@@ -1175,47 +1220,12 @@ class BaseDeviceType(object):
         if self.emulated == False: return self.name + " (id: " + str(self.id) + ")"
         if self.emulated == True: return "[Emulated] " + self.name + " (id: " + str(self.id) + ")"
 
-    def add_preset(self, description, quilt_width, quilt_height, columns, rows):
-        ''' add a quilt preset to the device type instance '''
-
-        # append the preset to the list
-        self.presets.append({
-                                "id": len(self.presets),
-                                "description": description,
-                				"width": quilt_width,
-                				"height": quilt_height,
-                				"columns": columns,
-                				"rows": rows,
-                				"totalViews": columns * rows,
-                				"quiltOffscreen": None,
-                				"viewOffscreens": []
-                            })
-
-        # return the added dict as result
-        return self.presets[-1]
-
-    def remove_preset(self, id):
-        ''' Remove a quilt preset from the device type instance '''
-
-        for preset in self.presets:
-            if (preset.id == id):
-
-                # create the device instance
-                print("Removing preset '%i' ..." % (id))
-
-                self.presets.remove(preset)
-
-            return True
-
-        # otherwise raise an exception
-        raise ValueError("The preset with id '%i' is not in the list." % id)
-
 
     # TEMPLATE METHODS - IMPLEMENTED BY SUBCLASS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     # NOTE: These methods must be implemented by the subclasses, which represent
     #       the specific device types.
-    def update(self, lightfield):
+    def display(self, lightfield, custom_decoder = None, **kwargs):
         ''' do some checks if required and hand it over for displaying '''
         # NOTE: This method should only pre-process the image, if the device
         #       type requires that. Then call service methods to display it.
@@ -1311,37 +1321,29 @@ class LookingGlass_8_9inch(BaseDeviceType):
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     type = "standard"                # the unique identifier string of this device type
     name = "8.9'' Looking Glass"     # name of this device type
-    aspect = 1.6                     # aspect ratio of the display (width / height)
     formats = [LookingGlassQuilt]    # list of lightfield image formats that are supported
     emulated_configuration = {       # configuration used for emulated devices of this type
-
-            # device information
-            'index': -1,
-            'hdmi': "LKG0001DUMMY",
-            'name': "8.9'' Looking Glass",
-            'serial': "LKG-1-DUMMY",
-            'type': "standard",
-
-            # # window & screen properties
-            # 'x': -1536,
-            # 'y': 0,
-            # 'width': 1536,
-            # 'height': 2048,
-            # 'aspectRatio': 0.75,
-            #
-            # # calibration data
-            # 'pitch': 354.70953369140625,
-            # 'tilt': -0.11324916034936905,
-            # 'center': -0.11902174353599548,
-            # 'subp': 0.0001302083401242271,
-            # 'fringe': 0.0,
-            # 'ri': 0,
-            # 'bi': 2,
-            # 'invView': 1,
-
-            # # viewcone
-            # 'viewCone': 58
-
+                'buttons': [0, 0, 0, 0],
+                'calibration': {
+                                    'DPI': 338.0,
+                                    'configVersion': '1.0',
+                                    'screenH': 1600.0,
+                                    'screenW': 2560.0,
+                                    'serial': 'LKG-1-DUMMY',
+                                    'viewCone': 40.0
+                                },
+                'defaultQuilt': {
+                                    'quiltAspect': 1.6,
+                                    'quiltX': 4096,
+                                    'quiltY': 4096,
+                                    'tileX': 5,
+                                    'tileY': 9
+                                },
+                'hardwareVersion': 'standard',
+                'hwid': 'LKG0001DUMMY',
+                'index': -1,
+                'joystickIndex': -1,
+                'state': 'ok',
             }
 
     # INSTANCE METHODS
@@ -1354,16 +1356,10 @@ class LookingGlass_8_9inch(BaseDeviceType):
         # call the initialization procedure of the BaseClass
         super().__init__(service, configuration)
 
-        # TODO: - transfer preset functions to LookingGlassQuilt class
-        #       - add an enumeration for the prefix which can be called by the device
-        #       - use LookingGlassQuilt.presets.to_list() to get enumeration values
+        # calculate aspect ratio
+        self.configuration['calibration']['aspect'] = self.configuration['calibration']['screenW'] / self.configuration['calibration']['screenH']
 
-        # define the quilt presets supported by this Looking Glass type
-        self.add_preset("2k Quilt, 32 Views", 2048, 2048, 4, 8)
-        self.add_preset("4k Quilt, 45 Views", 4095, 4095, 5, 9)
-        self.add_preset("8k Quilt, 45 Views", 4096 * 2, 4096 * 2, 5, 9)
-
-    def display(self, lightfield, custom_decoder = None):
+    def display(self, lightfield, custom_decoder = None, aspect = None):
         ''' display a given lightfield image object on the device '''
         # NOTE: This method should only do validity checks.
         #       Then call service methods to display the lightfield on the device.
@@ -1374,9 +1370,12 @@ class LookingGlass_8_9inch(BaseDeviceType):
             # if a service is bound
             if self.service:
 
+                # if no aspect ratio is given, use the device aspect ratio
+                if not aspect: aspect = self.configuration['calibration']['aspect']
+
                 print("Requesting '%s' to display the lightfield on '%s' ..." % (self.service, self))
                 # request the service to display the lightfield on the device
-                self.service.display(self, lightfield, custom_decoder)
+                self.service.display(lightfield, aspect, custom_decoder)
 
                 return True
 
@@ -1390,9 +1389,9 @@ class LookingGlass_8_9inch(BaseDeviceType):
     # NOTE: Here is the place to define internal methods required for your
     #       specific device type implementation
 
-    def _template_func(self):
-        ''' DEFINE YOUR REQUIRED DEVICE-SPECIFIC FUNCTIONS HERE '''
-        return None
+    # def _template_func(self):
+    #     ''' DEFINE YOUR REQUIRED DEVICE-SPECIFIC FUNCTIONS HERE '''
+    #     return None
 
 
 
@@ -1403,36 +1402,31 @@ class LookingGlass_portrait(BaseDeviceType):
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     type = "portrait"                # the unique identifier string of this device type
     name = "Looking Glass Portrait"  # name of this device type
+    formats = [LookingGlassQuilt]    # list of lightfield image formats that are supported
     emulated_configuration = {       # configuration used for emulated devices of this type
-
-            # device information
-            'index': -1,
-            'hdmi': "LKG0001DUMMY",
-            'name': "Looking Glass Portrait",
-            'serial': "LKG-1-DUMMY",
-            'type': "portrait",
-
-            # # window & screen properties
-            # 'x': -1536,
-            # 'y': 0,
-            # 'width': 1536,
-            # 'height': 2048,
-            # 'aspectRatio': 0.75,
-            #
-            # # calibration data
-            # 'pitch': 354.70953369140625,
-            # 'tilt': -0.11324916034936905,
-            # 'center': -0.11902174353599548,
-            # 'subp': 0.0001302083401242271,
-            # 'fringe': 0.0,
-            # 'ri': 0,
-            # 'bi': 2,
-            # 'invView': 1,
-
-            # # viewcone
-            # 'viewCone': 58
-
+                'buttons': [0, 0, 0, 0],
+                'calibration': {
+                                    'DPI': 324.0,
+                                    'configVersion': '1.0',
+                                    'screenH': 2048.0,
+                                    'screenW': 1536.0,
+                                    'serial': 'LKG-5-DUMMY',
+                                    'viewCone': 58.0
+                                },
+                'defaultQuilt': {
+                                    'quiltAspect': 0.75,
+                                    'quiltX': 3840,
+                                    'quiltY': 3840,
+                                    'tileX': 8,
+                                    'tileY': 6
+                                },
+                'hardwareVersion': 'portrait',
+                'hwid': 'LKG0005DUMMY',
+                'index': -1,
+                'joystickIndex': -1,
+                'state': 'ok',
             }
+
 
     # INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -1444,8 +1438,32 @@ class LookingGlass_portrait(BaseDeviceType):
         # call the initialization procedure of the BaseClass
         super().__init__(service, configuration)
 
-        # define the quilt presets supported by this Looking Glass type
-        self.add_preset("Portrait, 48 Views", 3360, 3360, 8, 6)
+        # calculate aspect ratio
+        self.configuration['calibration']['aspect'] = self.configuration['calibration']['screenW'] / self.configuration['calibration']['screenH']
+
+    def display(self, lightfield, aspect = None, custom_decoder = None):
+        ''' display a given lightfield image object on the device '''
+        # NOTE: This method should only do validity checks.
+        #       Then call service methods to display the lightfield on the device.
+
+        # if the given lightfield image format is supported
+        if type(lightfield) in self.formats:
+
+            # if a service is bound
+            if self.service:
+
+                # if no aspect ratio is given, use the device aspect ratio
+                if not aspect: aspect = self.configuration['calibration']['aspect']
+
+                print("Requesting '%s' to display the lightfield on '%s' ..." % (self.service, self))
+                # request the service to display the lightfield on the device
+                self.service.display(lightfield, aspect, custom_decoder)
+
+                return True
+
+            raise RuntimeError("No service was specified.")
+
+        raise TypeError("The given lightfield image of type '%s' is not supported by this device." % type(lightfield))
 
 
 
@@ -1454,9 +1472,9 @@ class LookingGlass_portrait(BaseDeviceType):
     # NOTE: Here is the place to define internal functions required for the
     #       specific device type implementation
 
-    def __template_func(self):
-        ''' DEFINE YOUR REQUIRED DEVICE-SPECIFIC FUNCTIONS HERE '''
-        return None
+    # def __template_func(self):
+    #     ''' DEFINE YOUR REQUIRED DEVICE-SPECIFIC FUNCTIONS HERE '''
+    #     return None
 
 
 
@@ -1494,32 +1512,25 @@ for idx, device in enumerate(DeviceManager.to_list(show_connected = False, show_
 myLookingGlass = DeviceManager.get_active()
 if myLookingGlass:
 
-    # # create some dummy views:
-    # dummy_views = []
-    # view_image = Image.open('looking_glass_tools/view.png').convert('RGBA')
-    # for i in range(0, 45):
-    #
-    #     view = np.asarray(view_image)
-    #     dummy_views.append(view)
-    #
-    # # create a lightfield image in LookingGlassQuilt format
-    # quilt = LightfieldImage.new(LookingGlassQuilt, width=4095, height=4095, rows=9, columns=5)
-    #
-    # # pass some views in a given format
-    # quilt.set_views(dummy_views, LightfieldImage.views_format.numpyarray)
-    #
-    # # display the quilt
-    # myLookingGlass.display(quilt)
-    #
-    # sleep(1)
+    # if the connected device is a LKG Portrait
+    if myLookingGlass.type == 'standard':
 
-    # load a lightfield image in LookingGlassQuilt format
-    TestQuilt = LightfieldImage.open('looking_glass_tools/quilt.png', LookingGlassQuilt)
+        # load a suitable example lightfield image in LookingGlassQuilt format
+        TestQuilt = LightfieldImage.open('looking_glass_tools/quilt.png', LookingGlassQuilt)
+
+    # if the connected device is a LKG Portrait
+    elif myLookingGlass.type == 'portrait':
+
+        # add the preset for the quilt
+        LookingGlassQuilt.formats.add({'description': 'Portrait, 91 Views', 'quilt_width': 4096, 'quilt_height': 4226, 'view_width': 585, 'view_height': 325, 'rows': 13, 'columns': 7})
+
+        # load a suitable example lightfield image in LookingGlassQuilt format
+        TestQuilt = LightfieldImage.open('looking_glass_tools/t_giovanni_1_quilt_resize4_qs7x13.png', LookingGlassQuilt)
 
     # display the quilt
     myLookingGlass.display(TestQuilt)
 
-    sleep(1)
+sleep(5)
 
 # remove the service
 ServiceManager.remove(service)
