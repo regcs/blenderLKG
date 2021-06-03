@@ -284,8 +284,8 @@ class LookingGlassQuilt(BaseLightfieldImageFormat):
 
             start = timeit.default_timer()
             # use PIL to load the image from disk
-            # NOTE: This makes nearly all of the execution time of the load() command
-            quilt_image = Image.open(filepath)#.convert(self.metadata['colormode'])
+            # NOTE: This makes nearly all of the execution time of the load() method
+            quilt_image = Image.open(filepath)
             if quilt_image:
 
                 # reset state variable
@@ -371,10 +371,10 @@ class LookingGlassQuilt(BaseLightfieldImageFormat):
         if custom_decoder:
 
             # call this function
-            buffer = custom_decoder(views, views_format, format)
+            quilt = custom_decoder(views, views_format, format)
 
             # return the bytesio of the quilt
-            return buffer
+            return quilt
 
 
         # TODO: HERE IS THE PLACE TO DEFINE STANDARD CONVERSIONS THAT CAN BE
@@ -1170,6 +1170,8 @@ class BaseDeviceType(object):
     __connected = True      # is the device still connected?
     __presets = []          # list for the quilt presets
 
+    __lightfield = None     # the lightfield currently displayed on this device
+
 
     # INSTANCE METHODS - IMPLEMENTED BY BASE CLASS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -1310,6 +1312,14 @@ class BaseDeviceType(object):
         else:
             self.configuration['calibration']['serial'] = value
 
+    @property
+    def lightfield(self):
+        return self.__name
+
+    @lightfield.setter
+    def lightfield(self, value):
+        self.__lightfield = value
+
 
 
 # LOOKING GLASS DEVICE TYPES
@@ -1375,7 +1385,10 @@ class LookingGlass_8_9inch(BaseDeviceType):
 
                 print("Requesting '%s' to display the lightfield on '%s' ..." % (self.service, self))
                 # request the service to display the lightfield on the device
-                self.service.display(lightfield, aspect, custom_decoder)
+                if self.service.display(lightfield, aspect, custom_decoder):
+
+                    # if that is successful, remember the lightfield for this device
+                    self.lightfield = lightfield
 
                 return True
 
@@ -1456,8 +1469,12 @@ class LookingGlass_portrait(BaseDeviceType):
                 if not aspect: aspect = self.configuration['calibration']['aspect']
 
                 print("Requesting '%s' to display the lightfield on '%s' ..." % (self.service, self))
+
                 # request the service to display the lightfield on the device
-                self.service.display(lightfield, aspect, custom_decoder)
+                if self.service.display(lightfield, aspect, custom_decoder):
+
+                    # if that is successful, remember the lightfield for this device
+                    self.lightfield = lightfield
 
                 return True
 
@@ -1530,7 +1547,27 @@ if myLookingGlass:
     # display the quilt
     myLookingGlass.display(TestQuilt)
 
-sleep(5)
+    sleep(5)
+
+else:
+
+    print("No device is connected!")
 
 # remove the service
 ServiceManager.remove(service)
+
+
+
+
+# TODOs:
+# +++++++++++++++++++++++++++++++++++++++++++++++
+#
+# DEVICES
+# - add device method and property to get the currently displayed lightfield
+# - add a "device is busy" flag in the DeviceManager (important for planned asynchronous methods)
+# - add device method to "empty the screen" after "display"
+#
+# LIGHTFIELDS
+#
+# - add method to get and set the metadata of a lighgtfield manually
+#
