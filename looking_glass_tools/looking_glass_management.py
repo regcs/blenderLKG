@@ -556,7 +556,6 @@ class BaseServiceType(object):
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     __version = ""                                      # version string of the service service
 
-
     # INSTANCE METHODS - IMPLEMENTED BY BASE CLASS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
     # NOTE: Here is the place to implement functions that should not be overriden
@@ -588,8 +587,12 @@ class BaseServiceType(object):
         ''' this function should return a list of device configurations '''
         pass
 
-    def display(self, device, lightfield):
+    def display(self, device, lightfield, aspect=None, custom_decoder = None):
         ''' display a given lightfield image object on a device '''
+        pass
+
+    def clear(self, device):
+        ''' clear the display of a given device '''
         pass
 
     def __del__(self):
@@ -692,7 +695,6 @@ class HoloPlayService(BaseServiceType):
 
         return self.version
 
-
     def get_devices(self):
         ''' send a request to the service and request the connected devices '''
         ''' this function should return a list object '''
@@ -726,7 +728,7 @@ class HoloPlayService(BaseServiceType):
                         # return the device list
                         return devices
 
-    def display(self, lightfield, aspect=None, custom_decoder = None):
+    def display(self, device, lightfield, aspect=None, invert=False, custom_decoder = None):
         ''' display a given lightfield image object on a device '''
         ''' HoloPlay Service expects a lightfield image in LookingGlassQuilt format '''
 
@@ -740,6 +742,7 @@ class HoloPlayService(BaseServiceType):
             print("Decoded lightfield data to BytesIO stream in %.3f s." % (timeit.default_timer() - start))
 
             if type(bytesio) == io.BytesIO:
+
                 # convert to bytes
                 bytes = bytesio.getvalue()
 
@@ -747,11 +750,11 @@ class HoloPlayService(BaseServiceType):
                 bytesio.close()
 
                 # parse the quilt metadata
-                settings = {'vx': lightfield.metadata['columns'], 'vy':lightfield.metadata['rows'], 'vtotal': lightfield.metadata['rows'] * lightfield.metadata['columns'], 'aspect': aspect}
+                settings = {'vx': lightfield.metadata['columns'], 'vy':lightfield.metadata['rows'], 'vtotal': lightfield.metadata['rows'] * lightfield.metadata['columns'], 'aspect': aspect, 'invert': not invert}
 
                 # pass the quilt to the device
                 print("The lightfield image '%s' is being sent to '%s' ..." % (lightfield, self))
-                self.__send_message(self.__show_quilt(bytes, settings))
+                self.__send_message(self.__show_quilt(device.configuration['index'], bytes, settings))
                 print("Sending message and waiting for response took %.3f s." % (timeit.default_timer() - start))
 
                 return True
@@ -760,11 +763,22 @@ class HoloPlayService(BaseServiceType):
 
         raise RuntimeError("The '%s' is not ready. Is HoloPlay Service app running?" % (self))
 
+    def clear(self, device):
+        ''' clear the display of a given device '''
+
+        # if the service is ready
+        if self.is_ready():
+
+            # clear the display
+            if self.__send_message(self.__hide(device.configuration['index'])):
+
+                return True
+
+        raise RuntimeError("The '%s' is not ready. Is HoloPlay Service app running?" % (self))
+
     def __del__(self):
         ''' disconnect from HoloPlay Service App and close NNG socket '''
         if self.__is_connected():
-
-            # print("Deinitializing the service '%s' ..." % (self))
 
             # disconnect and close socket
             self.__disconnect()
@@ -847,7 +861,6 @@ class HoloPlayService(BaseServiceType):
 
     def __send_message(self, input_object):
         ''' send a message to HoloPlay Service '''
-
         # if a NNG socket is open
         if self.__is_socket():
 
@@ -856,21 +869,12 @@ class HoloPlayService(BaseServiceType):
 
             # send it to the socket
             self.__socket.send(cbor_dump)
-            # print("---------------")
-            # print("Command (" + str(len(cbor_dump)) + " bytes, "+str(len(input_object['bin']))+" binary): ")
-            # print(input_object['cmd'])
-            # print("---------------")
 
             # receive the CBOR-formatted response
             response = self.__socket.recv()
 
-            # print("Response (" + str(len(response)) + " bytes): ")
-            cbor_load = cbor.loads(response)
-            # print(cbor_load)
-            # print("---------------")
-
-            # return the response length and its conent
-            return [len(response), cbor_load]
+            # return the decoded CBOR response length and its conent
+            return [len(response), cbor.loads(response)]
 
     def __calculate_derived(self, configuration):
         ''' calculate the values derived from the calibration json delivered by HoloPlay Service '''
@@ -896,37 +900,33 @@ class HoloPlayService(BaseServiceType):
         return command
 
     @staticmethod
-    def __hide():
-        ''' tell HoloPlay Service to hide the displayed quilt '''
-
+    def __show_quilt(dev_index, bindata, settings):
+        ''' tell HoloPlay Service to display the incoming quilt '''
         command = {
             'cmd': {
-                'hide': {},
+                'show': {
+                    'targetDisplay': dev_index,
+                    'source': 'bindata',
+                    'quilt': {
+                        'type': 'image',
+                        'settings': settings
+                    }
+                },
             },
-            'bin': bytes(),
+            'bin': bindata,
         }
         return command
 
     @staticmethod
-    def __wipe():
-        ''' tell HoloPlay Service to clear the display '''
-
-        command = {
-            'cmd': {
-                'wipe': {},
-            },
-            'bin': bytes(),
-        }
-        return command
-
-    @staticmethod
-    def __load_quilt(name, settings = None):
+    def __load_quilt(dev_index, name, settings = None):
         ''' tell HoloPlay Service to load a cached quilt '''
         command = {
             'cmd': {
                 'show': {
+                    'targetDisplay': dev_index,
                     'source': 'cache',
                     'quilt': {
+                        'type': 'image',
                         'name': name
                     },
                 },
@@ -940,38 +940,46 @@ class HoloPlayService(BaseServiceType):
         return command
 
     @staticmethod
-    def __show_quilt(bindata, settings):
-        ''' tell HoloPlay Service to display the incoming quilt '''
-
+    def __cache_quilt(dev_index, bindata, name, settings):
+        ''' tell HoloPlay Service to cache the incoming quilt '''
         command = {
             'cmd': {
-                'show': {
-                    'source': 'bindata',
+                'cache': {
+                    'targetDisplay': dev_index,
                     'quilt': {
                         'type': 'image',
+                        'name': name,
                         'settings': settings
                     }
-                },
+                }
             },
             'bin': bindata,
         }
         return command
 
     @staticmethod
-    def __cache_quilt(bindata, name, settings):
-        ''' tell HoloPlay Service to cache the incoming quilt '''
+    def __hide(dev_index):
+        ''' tell HoloPlay Service to hide the displayed quilt '''
 
         command = {
             'cmd': {
-                'cache': {
-                    'quilt': {
-                        'name': name,
-                        'type': 'image',
-                        'settings': settings
-                    }
-                }
+                'hide': {
+                    'targetDisplay': dev_index,
+                },
             },
-            'bin': bindata,
+            'bin': bytes(),
+        }
+        return command
+
+    @staticmethod
+    def __wipe(dev_index):
+        ''' tell HoloPlay Service to clear the display (shows the logo quilt) '''
+        command = {
+            'cmd': {
+                'targetDisplay': dev_index,
+                'wipe': {},
+            },
+            'bin': bytes(),
         }
         return command
 
@@ -1314,7 +1322,7 @@ class BaseDeviceType(object):
 
     @property
     def lightfield(self):
-        return self.__name
+        return self.__lightfield
 
     @lightfield.setter
     def lightfield(self, value):
@@ -1369,7 +1377,7 @@ class LookingGlass_8_9inch(BaseDeviceType):
         # calculate aspect ratio
         self.configuration['calibration']['aspect'] = self.configuration['calibration']['screenW'] / self.configuration['calibration']['screenH']
 
-    def display(self, lightfield, custom_decoder = None, aspect = None):
+    def display(self, lightfield, aspect = None, custom_decoder = None):
         ''' display a given lightfield image object on the device '''
         # NOTE: This method should only do validity checks.
         #       Then call service methods to display the lightfield on the device.
@@ -1384,8 +1392,9 @@ class LookingGlass_8_9inch(BaseDeviceType):
                 if not aspect: aspect = self.configuration['calibration']['aspect']
 
                 print("Requesting '%s' to display the lightfield on '%s' ..." % (self.service, self))
+
                 # request the service to display the lightfield on the device
-                if self.service.display(lightfield, aspect, custom_decoder):
+                if self.service.display(self, lightfield, aspect, custom_decoder):
 
                     # if that is successful, remember the lightfield for this device
                     self.lightfield = lightfield
@@ -1396,6 +1405,24 @@ class LookingGlass_8_9inch(BaseDeviceType):
 
         raise TypeError("The given lightfield image of type '%s' is not supported by this device." % type(lightfield))
 
+    def clear(self):
+        ''' clear the device display '''
+
+        # if a service is bound and a lightfield is displayed
+        if self.service:
+
+            # if a lightfield is displayed on this device
+            if self.lightfield:
+
+                # clear the display
+                if self.service.clear(self):
+
+                    # reset the instance's lightfield state variable
+                    self.lightfield = None
+
+            return True
+
+        raise RuntimeError("No service was specified.")
 
     # PRIVATE INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -1454,7 +1481,7 @@ class LookingGlass_portrait(BaseDeviceType):
         # calculate aspect ratio
         self.configuration['calibration']['aspect'] = self.configuration['calibration']['screenW'] / self.configuration['calibration']['screenH']
 
-    def display(self, lightfield, aspect = None, custom_decoder = None):
+    def display(self, lightfield, aspect = None, invert = None, custom_decoder = None):
         ''' display a given lightfield image object on the device '''
         # NOTE: This method should only do validity checks.
         #       Then call service methods to display the lightfield on the device.
@@ -1467,11 +1494,12 @@ class LookingGlass_portrait(BaseDeviceType):
 
                 # if no aspect ratio is given, use the device aspect ratio
                 if not aspect: aspect = self.configuration['calibration']['aspect']
+                if invert == None: invert = self.configuration['calibration']['invView']
 
                 print("Requesting '%s' to display the lightfield on '%s' ..." % (self.service, self))
 
                 # request the service to display the lightfield on the device
-                if self.service.display(lightfield, aspect, custom_decoder):
+                if self.service.display(self, lightfield, aspect, invert, custom_decoder):
 
                     # if that is successful, remember the lightfield for this device
                     self.lightfield = lightfield
@@ -1482,7 +1510,21 @@ class LookingGlass_portrait(BaseDeviceType):
 
         raise TypeError("The given lightfield image of type '%s' is not supported by this device." % type(lightfield))
 
+    def clear(self):
+        ''' clear the device display '''
 
+        # if a service is bound and a lightfield is displayed
+        if self.service and self.lightfield:
+
+            # clear the display
+            if self.service.clear(self):
+
+                # reset the instance's lightfield state variable
+                self.lightfield = None
+
+                return True
+
+        RuntimeError("TEST")
 
     # PRIVATE INSTANCE METHODS
     # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -1524,7 +1566,6 @@ print('[STATS] Found %i emulated devices:' % DeviceManager.count(show_connected 
 for idx, device in enumerate(DeviceManager.to_list(show_connected = False, show_emulated = True)):
     print(" [%i] %s" % (idx, device,) )
 
-
 # get the active Looking Glass
 myLookingGlass = DeviceManager.get_active()
 if myLookingGlass:
@@ -1549,6 +1590,11 @@ if myLookingGlass:
 
     sleep(5)
 
+    # clear the quilt
+    myLookingGlass.clear()
+
+    sleep(2)
+
 else:
 
     print("No device is connected!")
@@ -1563,11 +1609,8 @@ ServiceManager.remove(service)
 # +++++++++++++++++++++++++++++++++++++++++++++++
 #
 # DEVICES
-# - add device method and property to get the currently displayed lightfield
 # - add a "device is busy" flag in the DeviceManager (important for planned asynchronous methods)
-# - add device method to "empty the screen" after "display"
 #
 # LIGHTFIELDS
-#
-# - add method to get and set the metadata of a lighgtfield manually
+# - add method to get/set the metadata of a lighgtfield manually
 #
